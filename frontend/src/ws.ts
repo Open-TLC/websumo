@@ -1,4 +1,5 @@
-export type Vehicle = [string, number, number] // [id, lon, lat]
+export type Vehicle = [string, number, number, number, number, number, string]
+// [id, lon, lat, angleDeg, lengthM, widthM, vclass]
 
 export interface SimMessage {
   t?: number

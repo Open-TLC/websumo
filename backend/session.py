@@ -32,7 +32,15 @@ class SimSession:
         for vid in traci.vehicle.getIDList():
             x, y = traci.vehicle.getPosition(vid)
             lon, lat = self.net.convertXY2LonLat(x, y)
-            vehicles.append([vid, round(lon, 7), round(lat, 7)])
+            vehicles.append([
+                vid,
+                round(lon, 7),
+                round(lat, 7),
+                round(traci.vehicle.getAngle(vid), 1),
+                round(traci.vehicle.getLength(vid), 2),
+                round(traci.vehicle.getWidth(vid), 2),
+                traci.vehicle.getVehicleClass(vid),
+            ])
         tls = {
             tls_id: traci.trafficlight.getRedYellowGreenState(tls_id)
             for tls_id in traci.trafficlight.getIDList()

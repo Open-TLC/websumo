@@ -2,7 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { MapboxOverlay } from '@deck.gl/mapbox'
-import { ScatterplotLayer, LineLayer } from '@deck.gl/layers'
+import { PolygonLayer, LineLayer } from '@deck.gl/layers'
 import type { Vehicle } from './ws'
 
 export interface MapViewHandle {
@@ -31,6 +31,38 @@ function tlsColor(stateStr: string | undefined, sigIdx: number): [number, number
     case 'y':
     case 'Y': return [230, 200, 0, 255]
     default:  return [140, 140, 140, 180]
+  }
+}
+
+const M_PER_DEG_LAT = 111320
+
+function vehiclePolygon(
+  lon: number, lat: number,
+  angleDeg: number, length: number, width: number,
+): [number, number][] {
+  const θ = (angleDeg * Math.PI) / 180
+  // SUMO: 0=north,90=east,clockwise → forward ENU vector (east, north)
+  const fE = Math.sin(θ), fN = Math.cos(θ)
+  // right vector (90° clockwise from forward)
+  const rE = Math.cos(θ), rN = -Math.sin(θ)
+  const mPerDegLon = M_PER_DEG_LAT * Math.cos((lat * Math.PI) / 180)
+  const corner = (fwd: number, right: number): [number, number] => [
+    lon + (fE * fwd + rE * right) / mPerDegLon,
+    lat + (fN * fwd + rN * right) / M_PER_DEG_LAT,
+  ]
+  const w = width / 2
+  // getPosition returns front-bumper centre; extend backwards by length
+  return [corner(0, w), corner(0, -w), corner(-length, -w), corner(-length, w)]
+}
+
+function vehicleColor(vclass: string): [number, number, number, number] {
+  switch (vclass) {
+    case 'tram':
+    case 'rail_urban': return [60, 180, 255, 240]
+    case 'bus':        return [80, 210, 100, 240]
+    case 'truck':
+    case 'trailer':    return [210, 120, 40, 240]
+    default:           return [255, 165, 40, 240]
   }
 }
 
@@ -89,13 +121,13 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON }, ref
             widthUnits: 'pixels',
             updateTriggers: { getColor: tls },
           }),
-          new ScatterplotLayer<Vehicle>({
+          new PolygonLayer<Vehicle>({
             id: 'vehicles',
             data: vehicles,
-            getPosition: (d) => [d[1], d[2]],
-            getFillColor: [255, 160, 40, 230],
-            getRadius: 5,
-            radiusUnits: 'pixels',
+            getPolygon: (d) => vehiclePolygon(d[1], d[2], d[3], d[4], d[5]),
+            getFillColor: (d) => vehicleColor(d[6]),
+            getLineColor: [0, 0, 0, 80],
+            lineWidthMinPixels: 0.5,
             pickable: false,
           }),
         ],
