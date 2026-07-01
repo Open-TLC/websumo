@@ -30,6 +30,23 @@ Open **http://localhost:8775** in your browser.
 > `websockets` library that handles WebSocket upgrades. Without it, the browser's WS
 > connection is silently rejected and vehicles will not appear.
 
+## Preparing scenarios
+
+Scenarios are built with [graph2sumo](../graph2sumo) from the intersection graphs
+in [helsinki_intersections](../helsinki_intersections). Always use the `--repo` flag:
+
+```bash
+cd /repos/graph2sumo
+./build_and_extract.sh --repo fi.helsinki.269
+./build_and_extract.sh --repo fi.helsinki.266
+./build_and_extract.sh --repo fi.helsinki.270
+```
+
+This reads the full data set from `helsinki_intersections` (signal groups, connections,
+ITC controller timing, corrections) and extracts built files to `/tmp/shared/sumotest/`.
+
+**Never** pass a local `graph.ttl` path — those are stale copies that lack signal group data.
+
 ## Development (hot reload)
 
 Run the backend and the Vite dev server separately:
@@ -55,14 +72,25 @@ Open **http://localhost:5173**.
 4. Use **⏸ Pause** / **▶ Resume** / **■ Stop** to control playback
 5. Drag the speed slider to adjust simulation rate
 
+## What is visualised
+
+| Layer | Rendering | Source |
+|-------|-----------|--------|
+| Junction areas | Filled polygons (MapLibre) | Node shapes from `.net.xml` |
+| Lane centrelines | Lines (MapLibre) | Edge/lane shapes from `.net.xml` |
+| Stop lines | Coloured bars perpendicular to lanes (deck.gl) | TLS controlled links; colour = live signal state |
+| Vehicles | Orange dots (deck.gl ScatterplotLayer) | TraCI `vehicle.getPosition` each step |
+
+Stop line colours follow the SUMO convention: **green** (G/g), **red** (r/R), **yellow** (y/Y), grey otherwise. The colour updates every simulation step via WebSocket.
+
 ## Architecture
 
 ```
 Browser (deck.gl + MapLibre)
   ├── GET /api/scenarios        → list .sumocfg files
-  ├── GET /api/network/{name}   → GeoJSON road network
+  ├── GET /api/network/{name}   → GeoJSON (lanes, junction areas, stop lines)
   ├── POST /api/session/start   → spawn SUMO subprocess, return session_id
-  └── WS /ws/{session_id}       → stream vehicle positions per step
+  └── WS /ws/{session_id}       → stream per-step: vehicles + TLS states
             ↕ TraCI (TCP, localhost, port chosen by traci.start())
          sumo -c scenario.sumocfg
 ```
