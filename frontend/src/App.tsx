@@ -36,6 +36,8 @@ export default function App() {
       .then((r) => r.json())
       .then((gj: GeoJSON.FeatureCollection) => {
         setNetworkGeoJSON(gj)
+        setSpeed(1.0)
+        setTrafficScale(1.0)
         mapRef.current?.fitNetwork(gj)
       })
       .catch(console.error)
@@ -98,6 +100,8 @@ export default function App() {
     await fetch('/api/session/stop', { method: 'POST' }).catch(() => {})
     setSimState('idle')
     setSimTime(0)
+    setSpeed(1.0)
+    setTrafficScale(1.0)
     mapRef.current?.updateStep([], {}, 0)
   }, [])
 
