@@ -33,9 +33,14 @@ class SimSession:
             x, y = traci.vehicle.getPosition(vid)
             lon, lat = self.net.convertXY2LonLat(x, y)
             vehicles.append([vid, round(lon, 7), round(lat, 7)])
+        tls = {
+            tls_id: traci.trafficlight.getRedYellowGreenState(tls_id)
+            for tls_id in traci.trafficlight.getIDList()
+        }
         return {
             't': round(traci.simulation.getTime(), 1),
             'vehicles': vehicles,
+            'tls': tls,
         }
 
     def close_traci(self) -> None:

@@ -53,9 +53,9 @@ export default function App() {
       sessionIdRef.current = session_id
 
       const sock = socketRef.current
-      sock.onVehicles = (vehicles, t) => {
+      sock.onStep = (vehicles, tls, t) => {
         setSimTime(t)
-        mapRef.current?.updateVehicles(vehicles, t)
+        mapRef.current?.updateStep(vehicles, tls, t)
       }
       sock.onEnd = () => {
         setSimState('ended')
@@ -86,7 +86,7 @@ export default function App() {
     setSimState('idle')
     setSimTime(0)
     // Clear vehicles
-    mapRef.current?.updateVehicles([], 0)
+    mapRef.current?.updateStep([], {}, 0)
   }, [])
 
   const handleSpeedChange = useCallback((v: number) => {
