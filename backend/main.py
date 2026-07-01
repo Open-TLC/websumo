@@ -8,12 +8,15 @@ import pathlib
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.routing import APIRouter
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from network import build_network_geojson
 from session import handle_command, session_manager, step_loop
 
 SCENARIOS_DIR = os.environ.get('SCENARIOS_DIR', '/tmp/shared/sumotest')
+FRONTEND_DIST = pathlib.Path(__file__).parent.parent / 'frontend' / 'dist'
 
 app = FastAPI(title='WebSUMO')
 app.add_middleware(
@@ -23,14 +26,16 @@ app.add_middleware(
     allow_headers=['*'],
 )
 
+api = APIRouter(prefix='/api')
 
-@app.get('/scenarios')
+
+@api.get('/scenarios')
 def list_scenarios() -> list[str]:
     cfgs = sorted(glob.glob(f'{SCENARIOS_DIR}/*.sumocfg'))
     return [pathlib.Path(c).stem for c in cfgs]
 
 
-@app.get('/network/{scenario}')
+@api.get('/network/{scenario}')
 def get_network(scenario: str) -> dict:
     net_xml = pathlib.Path(SCENARIOS_DIR) / f'{scenario}.net.xml'
     if not net_xml.exists():
@@ -42,7 +47,7 @@ class StartRequest(BaseModel):
     scenario: str
 
 
-@app.post('/session/start')
+@api.post('/session/start')
 async def start_session(req: StartRequest) -> dict:
     if session_manager.active:
         raise HTTPException(409, 'Session already active — stop it first')
@@ -54,10 +59,13 @@ async def start_session(req: StartRequest) -> dict:
     return {'session_id': session_id}
 
 
-@app.post('/session/stop')
+@api.post('/session/stop')
 async def stop_session() -> dict:
     await session_manager.stop()
     return {'ok': True}
+
+
+app.include_router(api)
 
 
 @app.websocket('/ws/{session_id}')
@@ -87,3 +95,7 @@ async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
         except asyncio.CancelledError:
             pass
         await session_manager.stop()
+
+
+if FRONTEND_DIST.exists():
+    app.mount('/', StaticFiles(directory=str(FRONTEND_DIST), html=True), name='static')

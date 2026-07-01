@@ -2,7 +2,6 @@ import sys
 sys.path.insert(0, '/usr/local/lib/python3.14/site-packages/sumo/tools')
 
 import asyncio
-import socket
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -11,11 +10,6 @@ from typing import Optional
 import traci
 import sumolib
 
-
-def _find_free_port() -> int:
-    with socket.socket() as s:
-        s.bind(('', 0))
-        return s.getsockname()[1]
 
 
 @dataclass
@@ -68,12 +62,9 @@ class SessionManager:
         loop = asyncio.get_running_loop()
         net = sumolib.net.readNet(net_xml, withInternal=False)
         session = SimSession(session_id=str(uuid.uuid4()), net=net)
-        port = _find_free_port()
-
         def _connect() -> None:
             traci.start([
                 'sumo', '-c', sumocfg,
-                '--remote-port', str(port),
                 '--no-step-log',
                 '--quit-on-end',
             ])

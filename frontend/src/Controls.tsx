@@ -47,9 +47,10 @@ export function Controls({
   return (
     <div style={{
       position: 'absolute', top: 12, left: 12, zIndex: 10,
-      background: 'rgba(15,15,30,0.92)', borderRadius: 8, padding: '12px 16px',
+      background: 'rgba(10,10,28,0.97)', borderRadius: 8, padding: '12px 16px',
       display: 'flex', flexDirection: 'column', gap: 10, minWidth: 260,
-      border: '1px solid #2a2a4a', backdropFilter: 'blur(4px)',
+      border: '1px solid #5a5aaa', backdropFilter: 'blur(4px)',
+      boxShadow: '0 2px 16px rgba(0,0,0,0.8)',
     }}>
       <div style={{ fontSize: 15, fontWeight: 700, color: '#aac', letterSpacing: 1 }}>
         WebSUMO
