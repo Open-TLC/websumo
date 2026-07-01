@@ -68,6 +68,14 @@ class SessionManager:
         net = sumolib.net.readNet(net_xml, withInternal=False)
         session = SimSession(session_id=str(uuid.uuid4()), net=net)
         def _connect() -> None:
+            # Close any stale connection; if the socket is already dead, force-clear
+            # the registry so traci.start() doesn't raise "already active".
+            try:
+                traci.close()
+            except Exception:
+                import traci.connection as _tc
+                _tc._connections.pop('default', None)
+                _tc._connections.pop('', None)
             traci.start([
                 'sumo', '-c', sumocfg,
                 '--no-step-log',
