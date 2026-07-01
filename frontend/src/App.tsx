@@ -12,6 +12,7 @@ export default function App() {
   const [simState, setSimState] = useState<SimState>('idle')
   const [simTime, setSimTime] = useState(0)
   const [speed, setSpeed] = useState(1.0)
+  const [trafficScale, setTrafficScale] = useState(1.0)
   const [basemap, setBasemap] = useState(false)
 
   const mapRef = useRef<MapViewHandle>(null)
@@ -105,6 +106,11 @@ export default function App() {
     socketRef.current.send({ cmd: 'speed', v })
   }, [])
 
+  const handleTrafficScaleChange = useCallback((v: number) => {
+    setTrafficScale(v)
+    socketRef.current.send({ cmd: 'scale', v })
+  }, [])
+
   const handleBasemapToggle = useCallback(() => {
     const next = !basemap
     setBasemap(next)
@@ -120,6 +126,7 @@ export default function App() {
         simState={simState}
         simTime={simTime}
         speed={speed}
+        trafficScale={trafficScale}
         basemap={basemap}
         onScenarioChange={setScenario}
         onLoad={handleLoad}
@@ -129,6 +136,7 @@ export default function App() {
         onStop={handleStop}
         onReset={handleReset}
         onSpeedChange={handleSpeedChange}
+        onTrafficScaleChange={handleTrafficScaleChange}
         onBasemapToggle={handleBasemapToggle}
       />
     </div>

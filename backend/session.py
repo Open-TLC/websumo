@@ -19,12 +19,16 @@ class SimSession:
     running: bool = True
     paused: bool = False
     step_delay: float = 0.05  # seconds between steps (~20 steps/sec at 1x speed)
+    pending_scale: Optional[float] = None  # applied in do_step inside TraCI thread
     websocket: Optional[object] = None
     executor: ThreadPoolExecutor = field(
         default_factory=lambda: ThreadPoolExecutor(max_workers=1, thread_name_prefix='traci')
     )
 
     def do_step(self) -> dict | None:
+        if self.pending_scale is not None:
+            traci.simulation.setScale(self.pending_scale)
+            self.pending_scale = None
         traci.simulationStep()
         if traci.simulation.getMinExpectedNumber() == 0:
             return None
@@ -143,5 +147,8 @@ def handle_command(session: SimSession, msg: dict) -> None:
     elif cmd == 'speed':
         v = max(0.1, min(float(msg.get('v', 1.0)), 20.0))
         session.step_delay = 0.05 / v
+    elif cmd == 'scale':
+        v = max(0.1, min(float(msg.get('v', 1.0)), 5.0))
+        session.pending_scale = v
     elif cmd == 'stop':
         session.running = False

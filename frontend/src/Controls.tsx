@@ -4,6 +4,7 @@ interface Props {
   simState: 'idle' | 'running' | 'paused' | 'ended'
   simTime: number
   speed: number
+  trafficScale: number
   basemap: boolean
   onScenarioChange: (s: string) => void
   onLoad: () => void
@@ -13,6 +14,7 @@ interface Props {
   onStop: () => void
   onReset: () => void
   onSpeedChange: (v: number) => void
+  onTrafficScaleChange: (v: number) => void
   onBasemapToggle: () => void
 }
 
@@ -35,8 +37,9 @@ const btn = (label: string, onClick: () => void, disabled = false, accent = fals
 )
 
 export function Controls({
-  scenarios, scenario, simState, simTime, speed, basemap,
-  onScenarioChange, onLoad, onStart, onPause, onResume, onStop, onReset, onSpeedChange, onBasemapToggle,
+  scenarios, scenario, simState, simTime, speed, trafficScale, basemap,
+  onScenarioChange, onLoad, onStart, onPause, onResume, onStop, onReset,
+  onSpeedChange, onTrafficScaleChange, onBasemapToggle,
 }: Props) {
   const idle = simState === 'idle'
   const running = simState === 'running'
@@ -103,13 +106,29 @@ export function Controls({
 
       {/* Speed */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ fontSize: 12, color: '#99a', width: 42 }}>
+        <span style={{ fontSize: 11, color: '#778', width: 52 }}>Speed</span>
+        <span style={{ fontSize: 12, color: '#99a', width: 34, textAlign: 'right' }}>
           {speed.toFixed(1)}×
         </span>
         <input
           type="range" min={0.1} max={10} step={0.1}
           value={speed}
           onChange={(e) => onSpeedChange(parseFloat(e.target.value))}
+          disabled={!active}
+          style={{ flex: 1 }}
+        />
+      </div>
+
+      {/* Traffic scale */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: 11, color: '#778', width: 52 }}>Traffic</span>
+        <span style={{ fontSize: 12, color: '#99a', width: 34, textAlign: 'right' }}>
+          {trafficScale.toFixed(1)}×
+        </span>
+        <input
+          type="range" min={0.1} max={5} step={0.1}
+          value={trafficScale}
+          onChange={(e) => onTrafficScaleChange(parseFloat(e.target.value))}
           disabled={!active}
           style={{ flex: 1 }}
         />
