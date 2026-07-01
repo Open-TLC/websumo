@@ -33,7 +33,10 @@ export default function App() {
     if (!scenario) return
     fetch(`/api/network/${encodeURIComponent(scenario)}`)
       .then((r) => r.json())
-      .then((gj: GeoJSON.FeatureCollection) => setNetworkGeoJSON(gj))
+      .then((gj: GeoJSON.FeatureCollection) => {
+        setNetworkGeoJSON(gj)
+        mapRef.current?.fitNetwork(gj)
+      })
       .catch(console.error)
   }, [scenario])
 

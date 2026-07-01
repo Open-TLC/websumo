@@ -8,6 +8,7 @@ import type { Vehicle } from './ws'
 export interface MapViewHandle {
   updateStep: (vehicles: Vehicle[], tls: Record<string, string>, t: number) => void
   setBasemap: (on: boolean) => void
+  fitNetwork: (gj: GeoJSON.FeatureCollection) => void
 }
 
 interface Props {
@@ -50,6 +51,28 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON }, ref
       const map = mapRef.current
       if (map?.getLayer('basemap-l')) {
         map.setPaintProperty('basemap-l', 'raster-opacity', on ? 1 : 0)
+      }
+    },
+    fitNetwork(gj: GeoJSON.FeatureCollection) {
+      const map = mapRef.current
+      if (!map) return
+      let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity
+      for (const f of gj.features) {
+        const g = f.geometry
+        const pts: number[][] =
+          g.type === 'LineString' ? g.coordinates
+          : g.type === 'Point' ? [g.coordinates]
+          : g.type === 'Polygon' ? g.coordinates[0]
+          : []
+        for (const [lon, lat] of pts) {
+          if (lon < minLon) minLon = lon
+          if (lon > maxLon) maxLon = lon
+          if (lat < minLat) minLat = lat
+          if (lat > maxLat) maxLat = lat
+        }
+      }
+      if (isFinite(minLon)) {
+        map.fitBounds([[minLon, minLat], [maxLon, maxLat]], { padding: 60, maxZoom: 18 })
       }
     },
     updateStep(vehicles: Vehicle[], tls: Record<string, string>) {
@@ -139,7 +162,6 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON }, ref
 
       map.addSource(SOURCE, { type: 'geojson', data: networkGeoJSON })
 
-      // Junction area fills — rendered first so lane lines appear on top
       map.addLayer({
         id: 'junction-areas',
         type: 'fill',
@@ -154,8 +176,6 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON }, ref
         filter: ['==', ['get', 'type'], 'junction-area'],
         paint: { 'line-color': '#3a3a60', 'line-width': 1 },
       })
-
-      // Lane lines
       map.addLayer({
         id: 'lanes',
         type: 'line',
@@ -163,8 +183,6 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON }, ref
         filter: ['==', ['get', 'type'], 'lane'],
         paint: { 'line-color': '#5a5a8a', 'line-width': 1.5, 'line-opacity': 0.9 },
       })
-
-      // Junction centre dots
       map.addLayer({
         id: 'junctions',
         type: 'circle',
@@ -172,26 +190,6 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON }, ref
         filter: ['==', ['get', 'type'], 'junction'],
         paint: { 'circle-color': '#3a3a6a', 'circle-radius': 3 },
       })
-
-      // Fit map to network bounds
-      let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity
-      for (const f of networkGeoJSON.features) {
-        const g = f.geometry
-        const pts: number[][] =
-          g.type === 'LineString' ? g.coordinates
-          : g.type === 'Point' ? [g.coordinates]
-          : g.type === 'Polygon' ? g.coordinates[0]
-          : []
-        for (const [lon, lat] of pts) {
-          if (lon < minLon) minLon = lon
-          if (lon > maxLon) maxLon = lon
-          if (lat < minLat) minLat = lat
-          if (lat > maxLat) maxLat = lat
-        }
-      }
-      if (isFinite(minLon)) {
-        map.fitBounds([[minLon, minLat], [maxLon, maxLat]], { padding: 60, maxZoom: 18 })
-      }
     }
 
     if (map.isStyleLoaded()) addLayers()
