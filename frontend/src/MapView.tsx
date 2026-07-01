@@ -7,6 +7,7 @@ import type { Vehicle } from './ws'
 
 export interface MapViewHandle {
   updateStep: (vehicles: Vehicle[], tls: Record<string, string>, t: number) => void
+  setBasemap: (on: boolean) => void
 }
 
 interface Props {
@@ -45,6 +46,12 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON }, ref
   const stopLinesRef = useRef<StopLine[]>([])
 
   useImperativeHandle(ref, () => ({
+    setBasemap(on: boolean) {
+      const map = mapRef.current
+      if (map?.getLayer('basemap-l')) {
+        map.setPaintProperty('basemap-l', 'raster-opacity', on ? 1 : 0)
+      }
+    },
     updateStep(vehicles: Vehicle[], tls: Record<string, string>) {
       const stopLines = stopLinesRef.current
       deckRef.current?.setProps({
@@ -87,6 +94,20 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON }, ref
     map.addControl(deck)
     mapRef.current = map
     deckRef.current = deck
+
+    // CartoDB Light basemap — hidden by default, toggled via setBasemap()
+    map.once('load', () => {
+      map.addSource('basemap', {
+        type: 'raster',
+        tiles: ['https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'],
+        tileSize: 256,
+        attribution:
+          '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors ' +
+          '© <a href="https://carto.com/attributions">CARTO</a>',
+      })
+      map.addLayer({ id: 'basemap-l', type: 'raster', source: 'basemap',
+                     paint: { 'raster-opacity': 0 } })
+    })
     return () => { map.remove() }
   }, [])
 

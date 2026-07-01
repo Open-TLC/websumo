@@ -4,6 +4,7 @@ interface Props {
   simState: 'idle' | 'running' | 'paused' | 'ended'
   simTime: number
   speed: number
+  basemap: boolean
   onScenarioChange: (s: string) => void
   onLoad: () => void
   onStart: () => void
@@ -11,6 +12,7 @@ interface Props {
   onResume: () => void
   onStop: () => void
   onSpeedChange: (v: number) => void
+  onBasemapToggle: () => void
 }
 
 const btn = (label: string, onClick: () => void, disabled = false, accent = false) => (
@@ -32,8 +34,8 @@ const btn = (label: string, onClick: () => void, disabled = false, accent = fals
 )
 
 export function Controls({
-  scenarios, scenario, simState, simTime, speed,
-  onScenarioChange, onLoad, onStart, onPause, onResume, onStop, onSpeedChange,
+  scenarios, scenario, simState, simTime, speed, basemap,
+  onScenarioChange, onLoad, onStart, onPause, onResume, onStop, onSpeedChange, onBasemapToggle,
 }: Props) {
   const idle = simState === 'idle'
   const running = simState === 'running'
@@ -52,8 +54,23 @@ export function Controls({
       border: '1px solid #5a5aaa', backdropFilter: 'blur(4px)',
       boxShadow: '0 2px 16px rgba(0,0,0,0.8)',
     }}>
-      <div style={{ fontSize: 15, fontWeight: 700, color: '#aac', letterSpacing: 1 }}>
-        WebSUMO
+      {/* Title + basemap toggle */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: '#aac', letterSpacing: 1 }}>
+          WebSUMO
+        </div>
+        <button
+          onClick={onBasemapToggle}
+          title="Toggle OSM basemap"
+          style={{
+            padding: '3px 10px', border: `1px solid ${basemap ? '#5a8aff' : '#3a3a6a'}`,
+            borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 600,
+            background: basemap ? '#1a2a4a' : '#1a1a30',
+            color: basemap ? '#8ab4ff' : '#667',
+          }}
+        >
+          {basemap ? 'OSM' : 'BLK'}
+        </button>
       </div>
 
       {/* Scenario selector */}

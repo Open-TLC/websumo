@@ -12,6 +12,7 @@ export default function App() {
   const [simState, setSimState] = useState<SimState>('idle')
   const [simTime, setSimTime] = useState(0)
   const [speed, setSpeed] = useState(1.0)
+  const [basemap, setBasemap] = useState(false)
 
   const mapRef = useRef<MapViewHandle>(null)
   const socketRef = useRef<SimSocket>(new SimSocket())
@@ -85,7 +86,6 @@ export default function App() {
     await fetch('/api/session/stop', { method: 'POST' }).catch(() => {})
     setSimState('idle')
     setSimTime(0)
-    // Clear vehicles
     mapRef.current?.updateStep([], {}, 0)
   }, [])
 
@@ -93,6 +93,12 @@ export default function App() {
     setSpeed(v)
     socketRef.current.send({ cmd: 'speed', v })
   }, [])
+
+  const handleBasemapToggle = useCallback(() => {
+    const next = !basemap
+    setBasemap(next)
+    mapRef.current?.setBasemap(next)
+  }, [basemap])
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
@@ -103,6 +109,7 @@ export default function App() {
         simState={simState}
         simTime={simTime}
         speed={speed}
+        basemap={basemap}
         onScenarioChange={setScenario}
         onLoad={handleLoad}
         onStart={handleStart}
@@ -110,6 +117,7 @@ export default function App() {
         onResume={handleResume}
         onStop={handleStop}
         onSpeedChange={handleSpeedChange}
+        onBasemapToggle={handleBasemapToggle}
       />
     </div>
   )
