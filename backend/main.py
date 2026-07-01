@@ -49,8 +49,7 @@ class StartRequest(BaseModel):
 
 @api.post('/session/start')
 async def start_session(req: StartRequest) -> dict:
-    if session_manager.active:
-        raise HTTPException(409, 'Session already active — stop it first')
+    await session_manager.stop()  # clean up any stale/ended session
     sumocfg = pathlib.Path(SCENARIOS_DIR) / f'{req.scenario}.sumocfg'
     net_xml = pathlib.Path(SCENARIOS_DIR) / f'{req.scenario}.net.xml'
     if not sumocfg.exists():

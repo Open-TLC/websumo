@@ -109,6 +109,7 @@ async def step_loop(session: SimSession) -> None:
                 continue
             result = await loop.run_in_executor(session.executor, session.do_step)
             if result is None:
+                session.running = False
                 if session.websocket:
                     try:
                         await session.websocket.send_json({'type': 'end'})

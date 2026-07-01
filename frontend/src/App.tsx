@@ -89,6 +89,14 @@ export default function App() {
     mapRef.current?.updateStep([], {}, 0)
   }, [])
 
+  const handleReset = useCallback(async () => {
+    socketRef.current.close()
+    await fetch('/api/session/stop', { method: 'POST' }).catch(() => {})
+    setSimState('idle')
+    setSimTime(0)
+    mapRef.current?.updateStep([], {}, 0)
+  }, [])
+
   const handleSpeedChange = useCallback((v: number) => {
     setSpeed(v)
     socketRef.current.send({ cmd: 'speed', v })
@@ -116,6 +124,7 @@ export default function App() {
         onPause={handlePause}
         onResume={handleResume}
         onStop={handleStop}
+        onReset={handleReset}
         onSpeedChange={handleSpeedChange}
         onBasemapToggle={handleBasemapToggle}
       />

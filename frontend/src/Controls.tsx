@@ -11,6 +11,7 @@ interface Props {
   onPause: () => void
   onResume: () => void
   onStop: () => void
+  onReset: () => void
   onSpeedChange: (v: number) => void
   onBasemapToggle: () => void
 }
@@ -35,7 +36,7 @@ const btn = (label: string, onClick: () => void, disabled = false, accent = fals
 
 export function Controls({
   scenarios, scenario, simState, simTime, speed, basemap,
-  onScenarioChange, onLoad, onStart, onPause, onResume, onStop, onSpeedChange, onBasemapToggle,
+  onScenarioChange, onLoad, onStart, onPause, onResume, onStop, onReset, onSpeedChange, onBasemapToggle,
 }: Props) {
   const idle = simState === 'idle'
   const running = simState === 'running'
@@ -92,11 +93,12 @@ export function Controls({
       </div>
 
       {/* Playback controls */}
-      <div style={{ display: 'flex', gap: 8 }}>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         {btn('▶ Start', onStart, !idle && !ended, true)}
         {running && btn('⏸ Pause', onPause)}
         {paused && btn('▶ Resume', onResume)}
         {active && btn('■ Stop', onStop)}
+        {!idle && btn('↺ Reset', onReset)}
       </div>
 
       {/* Speed */}
