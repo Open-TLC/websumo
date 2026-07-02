@@ -8,7 +8,7 @@ export class SimSocket {
 
   connect(scenario: string): void {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    this.ws = new WebSocket(`${proto}//${window.location.host}/ws/${scenario}`)
+    this.ws = new WebSocket(`${proto}//${window.location.host}/api/ws/${scenario}`)
     this.ws.onmessage = (e) => {
       const d = JSON.parse(e.data)
       if (d.type === 'end') {

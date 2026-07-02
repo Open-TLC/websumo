@@ -108,10 +108,7 @@ def stop_adapter() -> dict:
     return {'ok': True}
 
 
-app.include_router(api)
-
-
-@app.websocket('/ws/{scenario}')
+@api.websocket('/ws/{scenario}')
 async def ws_endpoint(websocket: WebSocket, scenario: str) -> None:
     """Relay NATS simulation state → browser, and browser commands → NATS."""
     await websocket.accept()
@@ -143,6 +140,8 @@ async def ws_endpoint(websocket: WebSocket, scenario: str) -> None:
     finally:
         await nc.drain()
 
+
+app.include_router(api)
 
 if FRONTEND_DIST.exists():
     app.mount('/', StaticFiles(directory=str(FRONTEND_DIST), html=True), name='static')
