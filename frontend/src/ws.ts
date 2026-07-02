@@ -3,7 +3,7 @@ export type Vehicle = [string, number, number, number, number, number, string]
 
 export class SimSocket {
   private ws: WebSocket | null = null
-  onStep: ((vehicles: Vehicle[], tls: Record<string, string>, t: number) => void) | null = null
+  onStep: ((vehicles: Vehicle[], tls: Record<string, string>, detectors: Record<string, boolean>, t: number) => void) | null = null
   onEnd: (() => void) | null = null
 
   connect(scenario: string): void {
@@ -14,7 +14,7 @@ export class SimSocket {
       if (d.type === 'end') {
         this.onEnd?.()
       } else {
-        this.onStep?.(d.vehicles ?? [], d.tls ?? {}, d.t ?? 0)
+        this.onStep?.(d.vehicles ?? [], d.tls ?? {}, d.detectors ?? {}, d.t ?? 0)
       }
     }
     this.ws.onerror = (e) => console.error('WS error', e)

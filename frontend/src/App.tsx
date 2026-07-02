@@ -57,9 +57,9 @@ export default function App() {
       }
 
       const sock = sockRef.current
-      sock.onStep = (vehicles, tls, t) => {
+      sock.onStep = (vehicles, tls, detectors, t) => {
         setSimTime(t)
-        mapRef.current?.updateStep(vehicles, tls, t)
+        mapRef.current?.updateStep(vehicles, tls, detectors, t)
       }
       sock.onEnd = () => {
         setSimState('ended')
@@ -93,7 +93,7 @@ export default function App() {
     setSimTime(0)
     setSpeed(1.0)
     setTrafficScale(1.0)
-    mapRef.current?.updateStep([], {}, 0)
+    mapRef.current?.updateStep([], {}, {}, 0)
   }, [])
 
   const handleReset = useCallback(async () => {
@@ -103,7 +103,7 @@ export default function App() {
     setSimTime(0)
     setSpeed(1.0)
     setTrafficScale(1.0)
-    mapRef.current?.updateStep([], {}, 0)
+    mapRef.current?.updateStep([], {}, {}, 0)
   }, [])
 
   const handleSpeedChange = useCallback((v: number) => {

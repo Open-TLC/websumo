@@ -6,7 +6,7 @@ import { PolygonLayer, LineLayer } from '@deck.gl/layers'
 import type { Vehicle } from './ws'
 
 export interface MapViewHandle {
-  updateStep: (vehicles: Vehicle[], tls: Record<string, string>, t: number) => void
+  updateStep: (vehicles: Vehicle[], tls: Record<string, string>, detectors: Record<string, boolean>, t: number) => void
   setBasemap: (on: boolean) => void
   fitNetwork: (gj: GeoJSON.FeatureCollection) => void
 }
@@ -20,6 +20,12 @@ interface StopLine {
   to: [number, number]
   tlsId: string
   sigIdx: number
+}
+
+interface Detector {
+  from: [number, number]
+  to: [number, number]
+  id: string
 }
 
 function tlsColor(stateStr: string | undefined, sigIdx: number): [number, number, number, number] {
@@ -77,6 +83,50 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON }, ref
   const mapRef = useRef<maplibregl.Map | null>(null)
   const deckRef = useRef<MapboxOverlay | null>(null)
   const stopLinesRef = useRef<StopLine[]>([])
+  const detectorsRef = useRef<Detector[]>([])
+
+  const renderDeck = (
+    vehicles: Vehicle[],
+    tls: Record<string, string>,
+    detectors: Record<string, boolean>,
+  ) => {
+    deckRef.current?.setProps({
+      layers: [
+        new LineLayer<Detector>({
+          id: 'detectors',
+          data: detectorsRef.current,
+          getSourcePosition: (d) => d.from,
+          getTargetPosition: (d) => d.to,
+          // occupied = bright cyan, clear = dim blue-grey
+          getColor: (d) => detectors[d.id]
+            ? [0, 230, 255, 255]
+            : [70, 90, 130, 160],
+          getWidth: (d) => detectors[d.id] ? 4 : 2,
+          widthUnits: 'pixels',
+          updateTriggers: { getColor: detectors, getWidth: detectors },
+        }),
+        new LineLayer<StopLine>({
+          id: 'stoplines',
+          data: stopLinesRef.current,
+          getSourcePosition: (d) => d.from,
+          getTargetPosition: (d) => d.to,
+          getColor: (d) => tlsColor(tls[d.tlsId], d.sigIdx),
+          getWidth: 3,
+          widthUnits: 'pixels',
+          updateTriggers: { getColor: tls },
+        }),
+        new PolygonLayer<Vehicle>({
+          id: 'vehicles',
+          data: vehicles,
+          getPolygon: (d) => vehiclePolygon(d[1], d[2], d[3], d[4], d[5]),
+          getFillColor: (d) => vehicleColor(d[6]),
+          getLineColor: [0, 0, 0, 80],
+          lineWidthMinPixels: 0.5,
+          pickable: false,
+        }),
+      ],
+    })
+  }
 
   useImperativeHandle(ref, () => ({
     setBasemap(on: boolean) {
@@ -107,31 +157,8 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON }, ref
         map.fitBounds([[minLon, minLat], [maxLon, maxLat]], { padding: 60, maxZoom: 18 })
       }
     },
-    updateStep(vehicles: Vehicle[], tls: Record<string, string>) {
-      const stopLines = stopLinesRef.current
-      deckRef.current?.setProps({
-        layers: [
-          new LineLayer<StopLine>({
-            id: 'stoplines',
-            data: stopLines,
-            getSourcePosition: (d) => d.from,
-            getTargetPosition: (d) => d.to,
-            getColor: (d) => tlsColor(tls[d.tlsId], d.sigIdx),
-            getWidth: 3,
-            widthUnits: 'pixels',
-            updateTriggers: { getColor: tls },
-          }),
-          new PolygonLayer<Vehicle>({
-            id: 'vehicles',
-            data: vehicles,
-            getPolygon: (d) => vehiclePolygon(d[1], d[2], d[3], d[4], d[5]),
-            getFillColor: (d) => vehicleColor(d[6]),
-            getLineColor: [0, 0, 0, 80],
-            lineWidthMinPixels: 0.5,
-            pickable: false,
-          }),
-        ],
-      })
+    updateStep(vehicles: Vehicle[], tls: Record<string, string>, detectors: Record<string, boolean>) {
+      renderDeck(vehicles, tls, detectors)
     },
   }))
 
@@ -186,6 +213,21 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON }, ref
             sigIdx: f.properties!.sig_idx as number,
           }
         })
+
+      // Parse detectors into ref for deck.gl use
+      detectorsRef.current = networkGeoJSON.features
+        .filter((f) => f.properties?.type === 'detector')
+        .map((f) => {
+          const coords = (f.geometry as GeoJSON.LineString).coordinates
+          return {
+            from: coords[0] as [number, number],
+            to: coords[1] as [number, number],
+            id: f.properties!.id as string,
+          }
+        })
+
+      // Show static geometry (detectors dim, stop lines grey) before sim starts
+      renderDeck([], {}, {})
 
       if (map.getSource(SOURCE)) {
         (map.getSource(SOURCE) as maplibregl.GeoJSONSource).setData(networkGeoJSON)

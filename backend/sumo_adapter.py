@@ -36,10 +36,16 @@ def _do_step(net: object) -> dict | None:
         tls_id: traci.trafficlight.getRedYellowGreenState(tls_id)
         for tls_id in traci.trafficlight.getIDList()
     }
+    detectors = {
+        det_id: traci.inductionloop.getLastStepVehicleNumber(det_id) > 0
+                or traci.inductionloop.getLastStepOccupancy(det_id) > 0
+        for det_id in traci.inductionloop.getIDList()
+    }
     return {
         't': round(traci.simulation.getTime(), 1),
         'vehicles': vehicles,
         'tls': tls,
+        'detectors': detectors,
     }
 
 
@@ -98,6 +104,9 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None) -> None
         '--no-step-log',
         '--quit-on-end',
     ]
+    detectors_xml = f'{SCENARIOS_DIR}/{scenario}.detectors.xml'
+    if os.path.exists(detectors_xml):
+        sumo_cmd += ['--additional-files', detectors_xml]
     if end_time is not None:
         sumo_cmd += [
             '--end', str(end_time),
