@@ -49,18 +49,44 @@ contain `.sumocfg` and `.net.xml` files (produced by `graph2sumo`).
 
 ## NATS subject schema
 
+### Implemented
+
 ```
 sim.{scenario}.state     ← adapter publishes after each step
 sim.{scenario}.end       ← adapter publishes when simulation finishes
 sim.{scenario}.cmd.pause
 sim.{scenario}.cmd.resume
 sim.{scenario}.cmd.stop
-sim.{scenario}.cmd.speed    payload: {"v": <float 0.1–20>}
+sim.{scenario}.cmd.speed    payload: {"v": <float 0.1–50>}
 sim.{scenario}.cmd.scale    payload: {"v": <float 0.1–5>}
 ```
 
+State message: `{"t": <sim seconds>, "vehicles": [[id, lon, lat, angle, length,
+width, vclass], ...], "tls": {"<junction_id>": "<state string e.g. GGrrGGrr>"}}`
+
 Any NATS client (OC, recorder, custom tool) can subscribe to `sim.{scenario}.state`
-or publish commands to `sim.{scenario}.cmd.*` alongside the browser.
+or publish commands to `sim.{scenario}.cmd.*` alongside the browser. Commands are
+fire-and-forget; they are buffered and applied before the next simulation step.
+
+### Planned (for Open Controller integration)
+
+The command set is intentionally minimal — new subjects are added as needed
+(each is a few lines in `sumo_adapter.py`'s `on_cmd` handler). The next
+increment, which makes the adapter a drop-in replacement for OC's
+`simengine_integrated.py`:
+
+```
+detector.control.{det_id}   ← adapter publishes detector occupancy per step
+                              payload: {"id": ..., "loop_on": bool, "tstamp": ISO8601}
+                              (OC control engine already subscribes to these)
+sim.{scenario}.cmd.tls      ← apply signal state string via
+                              trafficlight.setRedYellowGreenState
+                              (OC publishes its computed states here)
+```
+
+A generic request-reply layer (`sumo.{sim}.get/set.{domain}.{var}`) was
+researched (see `docs/NATS_TRACI_REPLACEMENT_RESEARCH.md`) but is deliberately
+not built — specific, validated subjects are added incrementally instead.
 
 ## Development (hot reload)
 
@@ -109,13 +135,19 @@ Vehicle colour by class: orange = car, blue = tram, green = bus, brown = truck.
 | Control | Effect |
 |---------|--------|
 | Load | Render network GeoJSON, fit map to bounds |
+| Length | Simulation duration (1 h / 4 h / 8 h / 24 h) — flow rates are stretched to cover the chosen span |
 | ▶ Start | Launch libsumo adapter, connect WebSocket |
 | ⏸ / ▶ | Pause / resume simulation |
 | ■ Stop | Stop simulation, clear vehicles |
 | ↺ Reset | Force-stop adapter, return to idle |
-| Speed slider | Wall-clock rate (0.1× – 10×) |
+| Speed slider | Wall-clock rate (0.1× – 50×) |
 | Traffic slider | Vehicle insertion scale (0.1× – 5×) via `simulation.setScale` |
 | BLK / OSM | Toggle CartoDB Light basemap |
+
+Demand is defined as flows (`vehsPerHour` per route), not explicit vehicle
+lists. Longer durations repeat the same hourly rates — there are no diurnal
+peaks unless the upstream demand generation (graph2sumo) adds time-windowed
+flows. At 50× a full 24 h simulation takes ~30 min wall time.
 
 ## Integration with Open Controller
 
