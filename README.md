@@ -61,8 +61,17 @@ sim.{scenario}.cmd.speed    payload: {"v": <float 0.1–50>}
 sim.{scenario}.cmd.scale    payload: {"v": <float 0.1–5>}
 ```
 
-State message: `{"t": <sim seconds>, "vehicles": [[id, lon, lat, angle, length,
-width, vclass], ...], "tls": {"<junction_id>": "<state string e.g. GGrrGGrr>"}}`
+State message:
+```json
+{
+  "t": 123.4,
+  "vehicles": [["id", lon, lat, angle, length, width, "vclass"], ...],
+  "tls": {"<junction_id>": "GGrrGGrr"},
+  "detectors": {"<det_id>": true}
+}
+```
+`detectors` maps each induction loop ID to its occupancy (vehicle present or
+passed during the last step).
 
 Any NATS client (OC, recorder, custom tool) can subscribe to `sim.{scenario}.state`
 or publish commands to `sim.{scenario}.cmd.*` alongside the browser. Commands are
@@ -71,12 +80,13 @@ fire-and-forget; they are buffered and applied before the next simulation step.
 ### Planned (for Open Controller integration)
 
 The command set is intentionally minimal — new subjects are added as needed
-(each is a few lines in `sumo_adapter.py`'s `on_cmd` handler). The next
-increment, which makes the adapter a drop-in replacement for OC's
+(each is a few lines in `sumo_adapter.py`'s `on_cmd` handler). Detector
+occupancy is already read every step and included in the state message; the
+remaining increment for a drop-in replacement of OC's
 `simengine_integrated.py`:
 
 ```
-detector.control.{det_id}   ← adapter publishes detector occupancy per step
+detector.control.{det_id}   ← republish detector occupancy in OC's format
                               payload: {"id": ..., "loop_on": bool, "tstamp": ISO8601}
                               (OC control engine already subscribes to these)
 sim.{scenario}.cmd.tls      ← apply signal state string via
@@ -125,10 +135,32 @@ Outputs land in `/tmp/shared/sumotest/`.
 | Junction areas | Filled polygons (MapLibre) | Node shapes from `.net.xml` |
 | Lane centrelines | Lines (MapLibre) | Edge/lane shapes from `.net.xml` |
 | Stop lines | Coloured bars at lane ends (deck.gl) | TLS links; colour = live signal state |
+| Detectors | Cross-lane bars at loop positions (deck.gl) | `{scenario}.detectors.xml`; live occupancy per step |
 | Vehicles | Oriented rectangles at actual SUMO dimensions (deck.gl) | libsumo per step |
 
 Stop line colours: **green** (G/g), **red** (r/R), **yellow** (y/Y), grey otherwise.
+Detector colours: steel blue when clear, **bright cyan** (wider) when occupied.
 Vehicle colour by class: orange = car, blue = tram, green = bus, brown = truck.
+
+### Detector files
+
+Each scenario needs a `{scenario}.detectors.xml` (inductionLoop definitions)
+next to its `.sumocfg` in `SCENARIOS_DIR`. These are generated per scenario by
+graph2sumo into `build/{scenario}/additional_detectors.xml` — copy them with
+the per-scenario name:
+
+```bash
+cp /repos/graph2sumo/build/fi.helsinki.269/additional_detectors.xml \
+   /tmp/shared/sumotest/fi.helsinki.269.detectors.xml
+```
+
+**Do not share one `additional_detectors.xml` between scenarios** — detector
+lane IDs are scenario-specific and a mismatched file makes SUMO refuse to
+start. (This was a real bug: builds copied every scenario's detector file to
+the same shared filename, last extraction winning.)
+
+If the file is missing, the scenario runs without detectors — the viewer and
+adapter degrade gracefully.
 
 ## Controls
 
