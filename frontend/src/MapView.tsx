@@ -97,11 +97,11 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON }, ref
           data: detectorsRef.current,
           getSourcePosition: (d) => d.from,
           getTargetPosition: (d) => d.to,
-          // occupied = bright cyan, clear = dim blue-grey
+          // occupied = bright cyan, clear = steel blue
           getColor: (d) => detectors[d.id]
-            ? [0, 230, 255, 255]
-            : [70, 90, 130, 160],
-          getWidth: (d) => detectors[d.id] ? 4 : 2,
+            ? [0, 240, 255, 255]
+            : [120, 150, 210, 230],
+          getWidth: (d) => detectors[d.id] ? 6 : 3,
           widthUnits: 'pixels',
           updateTriggers: { getColor: detectors, getWidth: detectors },
         }),

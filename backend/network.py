@@ -26,7 +26,7 @@ def _stopline_coords(shape, net, half_width: float = 1.8) -> list | None:
     return [[lon_l, lat_l], [lon_r, lat_r]]
 
 
-def _cross_lane_coords(shape, offset: float, net, half_width: float = 1.5) -> list | None:
+def _cross_lane_coords(shape, offset: float, net, half_width: float = 2.2) -> list | None:
     """Short line segment across the lane at the given offset along its shape."""
     if len(shape) < 2:
         return None
