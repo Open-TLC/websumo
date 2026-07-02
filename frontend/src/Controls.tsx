@@ -111,7 +111,7 @@ export function Controls({
           {speed.toFixed(1)}×
         </span>
         <input
-          type="range" min={0.1} max={10} step={0.1}
+          type="range" min={0.1} max={50} step={0.1}
           value={speed}
           onChange={(e) => onSpeedChange(parseFloat(e.target.value))}
           disabled={!active}

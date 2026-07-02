@@ -65,7 +65,7 @@ async def run(scenario: str, nats_url: str) -> None:
         elif cmd == 'stop':
             pending['stop'] = True
         elif cmd == 'speed':
-            v = max(0.1, min(float(data.get('v', 1.0)), 20.0))
+            v = max(0.1, min(float(data.get('v', 1.0)), 50.0))
             step_delay = 0.05 / v
         elif cmd == 'scale':
             pending['scale'] = max(0.1, min(float(data.get('v', 1.0)), 5.0))
