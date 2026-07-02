@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Controls } from './Controls'
 import { MapView, type MapViewHandle } from './MapView'
-import { SimSocket } from './ws'
+import { SimNats } from './ws'
 
 type SimState = 'idle' | 'running' | 'paused' | 'ended'
 
@@ -15,9 +15,8 @@ export default function App() {
   const [trafficScale, setTrafficScale] = useState(1.0)
   const [basemap, setBasemap] = useState(false)
 
-  const mapRef = useRef<MapViewHandle>(null)
-  const socketRef = useRef<SimSocket>(new SimSocket())
-  const sessionIdRef = useRef<string | null>(null)
+  const mapRef    = useRef<MapViewHandle>(null)
+  const natsRef   = useRef<SimNats>(new SimNats())
 
   // Fetch scenario list on mount
   useEffect(() => {
@@ -46,29 +45,30 @@ export default function App() {
   const handleStart = useCallback(async () => {
     if (!scenario) return
     try {
-      const res = await fetch('/api/session/start', {
+      // start the libsumo adapter process via FastAPI
+      const res = await fetch('/api/adapter/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ scenario }),
       })
       if (!res.ok) {
         const err = await res.json()
-        alert(err.detail ?? 'Failed to start session')
+        alert(err.detail ?? 'Failed to start adapter')
         return
       }
-      const { session_id } = await res.json()
-      sessionIdRef.current = session_id
 
-      const sock = socketRef.current
-      sock.onStep = (vehicles, tls, t) => {
+      // connect browser directly to NATS via WebSocket
+      const nats = natsRef.current
+      nats.onStep = (vehicles, tls, t) => {
         setSimTime(t)
         mapRef.current?.updateStep(vehicles, tls, t)
       }
-      sock.onEnd = () => {
+      nats.onEnd = () => {
         setSimState('ended')
-        sock.close()
+        nats.close()
       }
-      sock.connect(session_id)
+      await nats.connect(scenario)
+
       setSimState('running')
       setSimTime(0)
     } catch (e) {
@@ -77,27 +77,29 @@ export default function App() {
   }, [scenario])
 
   const handlePause = useCallback(() => {
-    socketRef.current.send({ cmd: 'pause' })
+    natsRef.current.publish('pause')
     setSimState('paused')
   }, [])
 
   const handleResume = useCallback(() => {
-    socketRef.current.send({ cmd: 'resume' })
+    natsRef.current.publish('resume')
     setSimState('running')
   }, [])
 
   const handleStop = useCallback(async () => {
-    socketRef.current.send({ cmd: 'stop' })
-    socketRef.current.close()
-    await fetch('/api/session/stop', { method: 'POST' }).catch(() => {})
+    natsRef.current.publish('stop')
+    await natsRef.current.close()
+    await fetch('/api/adapter/stop', { method: 'POST' }).catch(() => {})
     setSimState('idle')
     setSimTime(0)
+    setSpeed(1.0)
+    setTrafficScale(1.0)
     mapRef.current?.updateStep([], {}, 0)
   }, [])
 
   const handleReset = useCallback(async () => {
-    socketRef.current.close()
-    await fetch('/api/session/stop', { method: 'POST' }).catch(() => {})
+    await natsRef.current.close()
+    await fetch('/api/adapter/stop', { method: 'POST' }).catch(() => {})
     setSimState('idle')
     setSimTime(0)
     setSpeed(1.0)
@@ -107,12 +109,12 @@ export default function App() {
 
   const handleSpeedChange = useCallback((v: number) => {
     setSpeed(v)
-    socketRef.current.send({ cmd: 'speed', v })
+    natsRef.current.publish('speed', { v })
   }, [])
 
   const handleTrafficScaleChange = useCallback((v: number) => {
     setTrafficScale(v)
-    socketRef.current.send({ cmd: 'scale', v })
+    natsRef.current.publish('scale', { v })
   }, [])
 
   const handleBasemapToggle = useCallback(() => {

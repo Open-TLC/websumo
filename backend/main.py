@@ -1,22 +1,22 @@
 import sys
 sys.path.insert(0, '/usr/local/lib/python3.14/site-packages/sumo/tools')
 
-import asyncio
 import glob
 import os
 import pathlib
+import subprocess
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRouter
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from network import build_network_geojson
-from session import handle_command, session_manager, step_loop
 
 SCENARIOS_DIR = os.environ.get('SCENARIOS_DIR', '/tmp/shared/sumotest')
 FRONTEND_DIST = pathlib.Path(__file__).parent.parent / 'frontend' / 'dist'
+ADAPTER_SCRIPT = pathlib.Path(__file__).parent / 'sumo_adapter.py'
 
 app = FastAPI(title='WebSUMO')
 app.add_middleware(
@@ -27,6 +27,8 @@ app.add_middleware(
 )
 
 api = APIRouter(prefix='/api')
+
+_adapter_proc: subprocess.Popen | None = None
 
 
 @api.get('/scenarios')
@@ -47,54 +49,41 @@ class StartRequest(BaseModel):
     scenario: str
 
 
-@api.post('/session/start')
-async def start_session(req: StartRequest) -> dict:
-    await session_manager.stop()  # clean up any stale/ended session
+@api.post('/adapter/start')
+def start_adapter(req: StartRequest) -> dict:
+    global _adapter_proc
+    # stop any running adapter first
+    if _adapter_proc and _adapter_proc.poll() is None:
+        _adapter_proc.terminate()
+        _adapter_proc.wait()
+        _adapter_proc = None
+
     sumocfg = pathlib.Path(SCENARIOS_DIR) / f'{req.scenario}.sumocfg'
-    net_xml = pathlib.Path(SCENARIOS_DIR) / f'{req.scenario}.net.xml'
     if not sumocfg.exists():
         raise HTTPException(404, f'Scenario not found: {req.scenario}')
-    session_id = await session_manager.start(str(sumocfg), str(net_xml))
-    return {'session_id': session_id}
+
+    _adapter_proc = subprocess.Popen(
+        [sys.executable, str(ADAPTER_SCRIPT), req.scenario],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+    )
+    return {'ok': True, 'scenario': req.scenario}
 
 
-@api.post('/session/stop')
-async def stop_session() -> dict:
-    await session_manager.stop()
+@api.post('/adapter/stop')
+def stop_adapter() -> dict:
+    global _adapter_proc
+    if _adapter_proc:
+        _adapter_proc.terminate()
+        try:
+            _adapter_proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            _adapter_proc.kill()
+        _adapter_proc = None
     return {'ok': True}
 
 
 app.include_router(api)
-
-
-@app.websocket('/ws/{session_id}')
-async def ws_endpoint(websocket: WebSocket, session_id: str) -> None:
-    session = session_manager.get(session_id)
-    if not session:
-        await websocket.close(code=1008, reason='Session not found')
-        return
-
-    await websocket.accept()
-    session.websocket = websocket
-    step_task = asyncio.create_task(step_loop(session))
-
-    try:
-        while True:
-            data = await websocket.receive_json()
-            handle_command(session, data)
-    except WebSocketDisconnect:
-        pass
-    except Exception:
-        pass
-    finally:
-        session.running = False
-        step_task.cancel()
-        try:
-            await step_task
-        except asyncio.CancelledError:
-            pass
-        await session_manager.stop()
-
 
 if FRONTEND_DIST.exists():
     app.mount('/', StaticFiles(directory=str(FRONTEND_DIST), html=True), name='static')

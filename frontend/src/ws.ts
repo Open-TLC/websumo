@@ -1,40 +1,57 @@
+import { connect, StringCodec } from 'nats.ws'
+import type { NatsConnection } from 'nats.ws'
+
 export type Vehicle = [string, number, number, number, number, number, string]
 // [id, lon, lat, angleDeg, lengthM, widthM, vclass]
 
-export interface SimMessage {
-  t?: number
-  vehicles?: Vehicle[]
-  tls?: Record<string, string>  // tls_id → phase string e.g. "GGrrGGrr"
-  type?: 'end'
-}
-
-export class SimSocket {
-  private ws: WebSocket | null = null
+export class SimNats {
+  private nc: NatsConnection | null = null
+  private scenario: string = ''
   onStep: ((vehicles: Vehicle[], tls: Record<string, string>, t: number) => void) | null = null
   onEnd: (() => void) | null = null
-  onError: ((e: Event) => void) | null = null
 
-  connect(sessionId: string): void {
-    this.ws = new WebSocket(`/ws/${sessionId}`)
-    this.ws.onmessage = (e) => {
-      const msg: SimMessage = JSON.parse(e.data)
-      if (msg.type === 'end') {
-        this.onEnd?.()
-      } else if (msg.vehicles !== undefined) {
-        this.onStep?.(msg.vehicles, msg.tls ?? {}, msg.t ?? 0)
+  async connect(scenario: string, natsUrl = 'ws://localhost:9222'): Promise<void> {
+    this.scenario = scenario
+    this.nc = await connect({ servers: natsUrl })
+    const sc = StringCodec()
+
+    const stateSub = this.nc.subscribe(`sim.${scenario}.state`)
+    const endSub   = this.nc.subscribe(`sim.${scenario}.end`)
+
+    // state messages → onStep
+    ;(async () => {
+      for await (const msg of stateSub) {
+        const d = JSON.parse(sc.decode(msg.data))
+        this.onStep?.(d.vehicles ?? [], d.tls ?? {}, d.t ?? 0)
       }
-    }
-    this.ws.onerror = (e) => this.onError?.(e)
+    })()
+
+    // end message → onEnd
+    ;(async () => {
+      for await (const _ of endSub) {
+        this.onEnd?.()
+        break
+      }
+    })()
   }
 
-  send(cmd: object): void {
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(cmd))
-    }
+  publish(cmd: string, data: Record<string, unknown> = {}): void {
+    if (!this.nc || !this.scenario) return
+    const sc = StringCodec()
+    this.nc.publish(
+      `sim.${this.scenario}.cmd.${cmd}`,
+      sc.encode(JSON.stringify(data)),
+    )
   }
 
-  close(): void {
-    this.ws?.close()
-    this.ws = null
+  async close(): Promise<void> {
+    const nc = this.nc
+    this.nc = null
+    this.scenario = ''
+    try {
+      await nc?.drain()
+    } catch {
+      // ignore drain errors on forced close
+    }
   }
 }

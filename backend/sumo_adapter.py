@@ -1,0 +1,127 @@
+import sys
+sys.path.insert(0, '/usr/local/lib/python3.14/site-packages/sumo/tools')
+
+import asyncio
+import json
+import os
+import signal
+from concurrent.futures import ThreadPoolExecutor
+
+import libsumo as traci
+import nats
+import sumolib
+
+SCENARIOS_DIR = os.environ.get('SCENARIOS_DIR', '/tmp/shared/sumotest')
+
+
+def _do_step(net: object) -> dict | None:
+    """Advance one simulation step and return state, or None if sim ended."""
+    traci.simulationStep()
+    if traci.simulation.getMinExpectedNumber() == 0:
+        return None
+    vehicles = []
+    for vid in traci.vehicle.getIDList():
+        x, y = traci.vehicle.getPosition(vid)
+        lon, lat = net.convertXY2LonLat(x, y)
+        vehicles.append([
+            vid,
+            round(lon, 7),
+            round(lat, 7),
+            round(traci.vehicle.getAngle(vid), 1),
+            round(traci.vehicle.getLength(vid), 2),
+            round(traci.vehicle.getWidth(vid), 2),
+            traci.vehicle.getVehicleClass(vid),
+        ])
+    tls = {
+        tls_id: traci.trafficlight.getRedYellowGreenState(tls_id)
+        for tls_id in traci.trafficlight.getIDList()
+    }
+    return {
+        't': round(traci.simulation.getTime(), 1),
+        'vehicles': vehicles,
+        'tls': tls,
+    }
+
+
+async def run(scenario: str, nats_url: str) -> None:
+    nc = await nats.connect(nats_url)
+
+    sumocfg = f'{SCENARIOS_DIR}/{scenario}.sumocfg'
+    net_xml  = f'{SCENARIOS_DIR}/{scenario}.net.xml'
+    net = sumolib.net.readNet(net_xml, withInternal=False)
+
+    paused     = False
+    step_delay = 0.05   # seconds between steps (20 steps/sec = 1× speed)
+    pending: dict = {}  # buffered commands applied before next step
+
+    async def on_cmd(msg: nats.aio.msg.Msg) -> None:
+        nonlocal paused, step_delay
+        cmd = msg.subject.rsplit('.', 1)[-1]
+        data = json.loads(msg.data) if msg.data else {}
+        if cmd == 'pause':
+            paused = True
+        elif cmd == 'resume':
+            paused = False
+        elif cmd == 'stop':
+            pending['stop'] = True
+        elif cmd == 'speed':
+            v = max(0.1, min(float(data.get('v', 1.0)), 20.0))
+            step_delay = 0.05 / v
+        elif cmd == 'scale':
+            pending['scale'] = max(0.1, min(float(data.get('v', 1.0)), 5.0))
+
+    await nc.subscribe(f'sim.{scenario}.cmd.*', cb=on_cmd)
+
+    traci.start([
+        'sumo', '-c', sumocfg,
+        '--no-step-log',
+        '--quit-on-end',
+    ])
+
+    loop = asyncio.get_running_loop()
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='libsumo')
+
+    try:
+        while True:
+            if pending.get('stop'):
+                break
+            if paused:
+                await asyncio.sleep(0.05)
+                continue
+            if 'scale' in pending:
+                scale = pending.pop('scale')
+                await loop.run_in_executor(executor, traci.simulation.setScale, scale)
+
+            result = await loop.run_in_executor(executor, _do_step, net)
+            if result is None:
+                await nc.publish(f'sim.{scenario}.end', b'{}')
+                break
+
+            await nc.publish(
+                f'sim.{scenario}.state',
+                json.dumps(result).encode(),
+            )
+            await asyncio.sleep(step_delay)
+    finally:
+        try:
+            traci.close()
+        except Exception:
+            pass
+        executor.shutdown(wait=False)
+        await nc.drain()
+
+
+if __name__ == '__main__':
+    if len(sys.argv) < 2:
+        print('Usage: sumo_adapter.py <scenario> [nats_url]', file=sys.stderr)
+        sys.exit(1)
+
+    scenario = sys.argv[1]
+    nats_url  = sys.argv[2] if len(sys.argv) > 2 else 'nats://localhost:4222'
+
+    # clean shutdown on SIGTERM (sent by FastAPI on adapter/stop)
+    def _sigterm(signum, frame):
+        sys.exit(0)
+    signal.signal(signal.SIGTERM, _sigterm)
+
+    asyncio.run(run(scenario, nats_url))
