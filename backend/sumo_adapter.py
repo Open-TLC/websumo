@@ -43,7 +43,28 @@ def _do_step(net: object) -> dict | None:
     }
 
 
-async def run(scenario: str, nats_url: str) -> None:
+def _stretch_flows(scenario: str, end_time: int) -> str:
+    """Write a temp route file with flow end times extended to end_time.
+
+    Demand is defined as flows (vehsPerHour rates), so extending the end
+    time simply continues the same rates — no vehicle list to regenerate.
+    """
+    import re
+    src = f'{SCENARIOS_DIR}/{scenario}.rou.xml'
+    dst = f'/tmp/{scenario}.rou.{end_time}.xml'
+    with open(src) as f:
+        content = f.read()
+    content = re.sub(
+        r'(<flow\b[^>]*\bend=")[0-9.]+(")',
+        rf'\g<1>{end_time}\g<2>',
+        content,
+    )
+    with open(dst, 'w') as f:
+        f.write(content)
+    return dst
+
+
+async def run(scenario: str, nats_url: str, end_time: int | None = None) -> None:
     nc = await nats.connect(nats_url)
 
     sumocfg = f'{SCENARIOS_DIR}/{scenario}.sumocfg'
@@ -72,11 +93,17 @@ async def run(scenario: str, nats_url: str) -> None:
 
     await nc.subscribe(f'sim.{scenario}.cmd.*', cb=on_cmd)
 
-    traci.start([
+    sumo_cmd = [
         'sumo', '-c', sumocfg,
         '--no-step-log',
         '--quit-on-end',
-    ])
+    ]
+    if end_time is not None:
+        sumo_cmd += [
+            '--end', str(end_time),
+            '--route-files', _stretch_flows(scenario, end_time),
+        ]
+    traci.start(sumo_cmd)
 
     loop = asyncio.get_running_loop()
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='libsumo')
@@ -113,15 +140,16 @@ async def run(scenario: str, nats_url: str) -> None:
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
-        print('Usage: sumo_adapter.py <scenario> [nats_url]', file=sys.stderr)
+        print('Usage: sumo_adapter.py <scenario> [end_time_s] [nats_url]', file=sys.stderr)
         sys.exit(1)
 
     scenario = sys.argv[1]
-    nats_url  = sys.argv[2] if len(sys.argv) > 2 else 'nats://localhost:4222'
+    end_time = int(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2] != '0' else None
+    nats_url  = sys.argv[3] if len(sys.argv) > 3 else 'nats://localhost:4222'
 
     # clean shutdown on SIGTERM (sent by FastAPI on adapter/stop)
     def _sigterm(signum, frame):
         sys.exit(0)
     signal.signal(signal.SIGTERM, _sigterm)
 
-    asyncio.run(run(scenario, nats_url))
+    asyncio.run(run(scenario, nats_url, end_time))

@@ -5,8 +5,10 @@ interface Props {
   simTime: number
   speed: number
   trafficScale: number
+  duration: number
   basemap: boolean
   onScenarioChange: (s: string) => void
+  onDurationChange: (d: number) => void
   onLoad: () => void
   onStart: () => void
   onPause: () => void
@@ -36,9 +38,16 @@ const btn = (label: string, onClick: () => void, disabled = false, accent = fals
   </button>
 )
 
+const DURATIONS = [
+  { label: '1 h',  value: 3600 },
+  { label: '4 h',  value: 14400 },
+  { label: '8 h',  value: 28800 },
+  { label: '24 h', value: 86400 },
+]
+
 export function Controls({
-  scenarios, scenario, simState, simTime, speed, trafficScale, basemap,
-  onScenarioChange, onLoad, onStart, onPause, onResume, onStop, onReset,
+  scenarios, scenario, simState, simTime, speed, trafficScale, duration, basemap,
+  onScenarioChange, onDurationChange, onLoad, onStart, onPause, onResume, onStop, onReset,
   onSpeedChange, onTrafficScaleChange, onBasemapToggle,
 }: Props) {
   const idle = simState === 'idle'
@@ -93,6 +102,24 @@ export function Controls({
           ))}
         </select>
         {btn('Load', onLoad, active || !scenario)}
+      </div>
+
+      {/* Simulation duration */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <span style={{ fontSize: 11, color: '#778', width: 52 }}>Length</span>
+        <select
+          value={duration}
+          onChange={(e) => onDurationChange(parseInt(e.target.value, 10))}
+          disabled={active}
+          style={{
+            flex: 1, padding: '5px 8px', borderRadius: 4,
+            background: '#1a1a30', border: '1px solid #3a3a6a', color: '#dde',
+          }}
+        >
+          {DURATIONS.map((d) => (
+            <option key={d.value} value={d.value}>{d.label}</option>
+          ))}
+        </select>
       </div>
 
       {/* Playback controls */}

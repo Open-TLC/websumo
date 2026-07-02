@@ -70,6 +70,7 @@ def get_network(scenario: str) -> dict:
 
 class StartRequest(BaseModel):
     scenario: str
+    end: int | None = None   # simulation end time in seconds; None = use sumocfg default
 
 
 @api.post('/adapter/start')
@@ -87,11 +88,11 @@ def start_adapter(req: StartRequest) -> dict:
 
     log = open(f'/tmp/sumo_adapter_{req.scenario}.log', 'w')
     _adapter_proc = subprocess.Popen(
-        [sys.executable, str(ADAPTER_SCRIPT), req.scenario],
+        [sys.executable, str(ADAPTER_SCRIPT), req.scenario, str(req.end or 0)],
         stdout=log,
         stderr=log,
     )
-    return {'ok': True, 'scenario': req.scenario}
+    return {'ok': True, 'scenario': req.scenario, 'end': req.end}
 
 
 @api.post('/adapter/stop')

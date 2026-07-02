@@ -13,6 +13,7 @@ export default function App() {
   const [simTime, setSimTime] = useState(0)
   const [speed, setSpeed] = useState(1.0)
   const [trafficScale, setTrafficScale] = useState(1.0)
+  const [duration, setDuration] = useState(3600)
   const [basemap, setBasemap] = useState(false)
 
   const mapRef    = useRef<MapViewHandle>(null)
@@ -47,7 +48,7 @@ export default function App() {
       const res = await fetch('/api/adapter/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scenario }),
+        body: JSON.stringify({ scenario, end: duration }),
       })
       if (!res.ok) {
         const err = await res.json()
@@ -72,7 +73,7 @@ export default function App() {
       console.error(e)
       alert(`Failed to start: ${e}`)
     }
-  }, [scenario])
+  }, [scenario, duration])
 
   const handlePause = useCallback(() => {
     sockRef.current.send('pause')
@@ -131,8 +132,10 @@ export default function App() {
         simTime={simTime}
         speed={speed}
         trafficScale={trafficScale}
+        duration={duration}
         basemap={basemap}
         onScenarioChange={setScenario}
+        onDurationChange={setDuration}
         onLoad={handleLoad}
         onStart={handleStart}
         onPause={handlePause}
