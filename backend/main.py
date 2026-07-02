@@ -62,10 +62,11 @@ def start_adapter(req: StartRequest) -> dict:
     if not sumocfg.exists():
         raise HTTPException(404, f'Scenario not found: {req.scenario}')
 
+    log = open(f'/tmp/sumo_adapter_{req.scenario}.log', 'w')
     _adapter_proc = subprocess.Popen(
         [sys.executable, str(ADAPTER_SCRIPT), req.scenario],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
+        stdout=log,
+        stderr=log,
     )
     return {'ok': True, 'scenario': req.scenario}
 
