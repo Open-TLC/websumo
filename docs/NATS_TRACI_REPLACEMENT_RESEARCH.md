@@ -1,7 +1,8 @@
 # Replacing TraCI with NATS — Feasibility Research
 ## `nats_traci`: SUMO accessible as a NATS service
 
-*Research completed: 2026-07-02. Based on: TraCI C++ source analysis,
+*Research completed: 2026-07-02. Verified 2026-07-02: libsumo 1.27.0 installed
+and tested against fi.helsinki.269. Based on: TraCI C++ source analysis,
 TraCI Python source code reading (connection.py, domain.py, main.py),
 NATS protocol benchmarks, and nRPC/nats-grpc design patterns.*
 
@@ -129,8 +130,11 @@ libsumo.close()
 Speed improvement: **~8× faster** than socket TraCI in benchmarks (all
 overhead removed). [github.com/LucasAlegre/sumo-rl]
 
-**Not currently installed on this machine** (only `libsumocpp.so` is present,
-not the Python SWIG bindings). Install with `pip install libsumo==1.27.0`.
+**Verified working on this machine** (`pip install libsumo==1.27.0` — libsumo
+is a separate pip package from `eclipse-sumo`; one install command suffices).
+Tested against fi.helsinki.269: start, simulationStep, vehicle.getIDList,
+vehicle.getPosition, vehicle.getAngle, vehicle.getLength, vehicle.getLeader,
+trafficlight.getIDList, trafficlight.getRedYellowGreenState — all correct.
 
 **`LIBSUMO_AS_TRACI=1`** is an existing mechanism: setting this env var before
 `import traci` causes `traci/__init__.py` to do `from libsumo import *`,
@@ -384,27 +388,16 @@ the multi-subscriber capability**.
 
 ## 7. Practical steps and hardest problems to test first
 
-### Step 1 — Verify libsumo can be installed and run
+### Step 1 — Install and verify libsumo ✓ DONE
 
 ```bash
 pip install libsumo==1.27.0
-python -c "
-import libsumo as traci
-traci.start(['sumo', '-c', '/tmp/shared/sumotest/fi.helsinki.269.sumocfg'])
-print(traci.simulation.getTime())
-traci.simulationStep()
-print(traci.vehicle.getIDList())
-traci.close()
-"
 ```
 
-This is the first gate. libsumo and the SUMO Python tools package (which
-provides `traci`) are both installed from the same SUMO distribution; they
-may conflict on import. Test in a clean virtualenv.
-
-**Expected risk:** libsumo Python SWIG bindings may not be included in the
-`eclipse-sumo` pip package that is currently installed here. They may need
-to be built from source or obtained from a separate package.
+`libsumo` is a **separate pip package** from `eclipse-sumo`. One install
+command. Verified on this machine against fi.helsinki.269: all key calls work
+including `vehicle.getLeader()`. No source build needed, no conflicts with
+the existing `eclipse-sumo` install.
 
 ### Step 2 — Verify the `_sendExact` override pattern works
 
@@ -448,11 +441,11 @@ phase sequences.
 
 | Problem | Why it is hard | First test |
 |---------|---------------|-----------|
-| libsumo Python bindings availability | May not be in the installed SUMO pip package; may conflict with `traci` on import | `pip install libsumo && python -c "import libsumo"` |
+| libsumo Python bindings availability | ~~May not be in the installed SUMO pip package~~ **Resolved: separate pip package, installs cleanly, verified working** | ✓ Done |
 | libsumo single-thread constraint | asyncio event loop + NATS callbacks + libsumo calls must all coordinate through one thread | Stress test: send 100 concurrent NATS requests, verify no crashes and correct results |
 | Binary frame pass-through vs re-serialisation | If adapter passes raw TraCI binary through NATS (zero change), the binary format version must match between nats_traci client and adapter; if re-serialising to MessagePack, all ~300 variable types must be handled | Start with binary pass-through, migrate later |
 | simulationStep subscription bundle | The step reply bundles N subscriptions. The adapter must collect all active subscriptions for this sim, run libsumo, pack the bundle, reply. The subscription registry must live in the adapter, not the client | Implement a server-side subscription registry |
-| OC's `getLeader()` via libsumo | Known libsumo gap: `vehicle.getLeader()` in subscription context may not work (Eclipse MOSAIC documents this). OC uses it in e3 detector processing. | Test `libsumo.vehicle.getLeader("veh0", 50)` in isolation |
+| OC's `getLeader()` via libsumo | ~~Known libsumo gap~~ **Resolved: `vehicle.getLeader()` works correctly in libsumo 1.27.0 against Helsinki 269** | ✓ Done |
 
 ---
 
