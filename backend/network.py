@@ -1,6 +1,7 @@
 import sys
 sys.path.insert(0, '/usr/local/lib/python3.14/site-packages/sumo/tools')
 
+import json
 import math
 import pathlib
 import xml.etree.ElementTree as ET
@@ -85,8 +86,16 @@ def build_network_geojson(net_xml_path: str) -> dict:
     if net_xml_path in _cache:
         return _cache[net_xml_path]
 
-    net = sumolib.net.readNet(net_xml_path, withInternal=False)
+    net = sumolib.net.readNet(net_xml_path, withInternal=False, withPrograms=True)
     features = []
+
+    # TLS programs keyed by junction ID (static inspection before Start)
+    tls_programs: dict[str, dict] = {}
+    for tls in net.getTrafficLights():
+        tls_programs[tls.getID()] = {
+            pid: [[ph.duration, ph.state] for ph in prog.getPhases()]
+            for pid, prog in tls.getPrograms().items()
+        }
 
     # Junction area polygons (rendered as filled shapes)
     for node in net.getNodes():
@@ -95,9 +104,16 @@ def build_network_geojson(net_xml_path: str) -> dict:
             continue
         coords = [list(net.convertXY2LonLat(x, y)) for x, y in shape]
         coords.append(coords[0])  # close ring
+        props = {
+            'id': node.getID(),
+            'type': 'junction-area',
+            'node_type': node.getType(),
+        }
+        if node.getID() in tls_programs:
+            props['tls_programs'] = json.dumps(tls_programs[node.getID()])
         features.append({
             'type': 'Feature',
-            'properties': {'id': node.getID(), 'type': 'junction-area'},
+            'properties': props,
             'geometry': {'type': 'Polygon', 'coordinates': [coords]},
         })
 

@@ -33,23 +33,35 @@ command path are missing.
 
 **Research:** `docs/NATS_TRACI_REPLACEMENT_RESEARCH.md`, `docs/INTEGRATION_ROADMAP.md`
 
-## 3. Element inspector — click any element, see its properties
+## 3. Element inspector — extend beyond vehicles + TLS
 
-Pickable vehicles/lanes/junctions/detectors; right-side inspector panel with a
-static section (sumolib attributes, works after Load) and a live section
-(streamed per step for the selected element via `sim.{scenario}.cmd.select` →
-`inspect` block in state messages, ~0.13 ms/inspect verified). TLS view shows
-the program table with current phase + next-switch countdown. No editing in
-v1; runtime edits (lane speed, TLS durations — verified working via libsumo
-setters) are the natural follow-up, then file-backed persistence for TLS
-programs/flows/detectors.
+v1 (vehicles + traffic lights) is done — see Done below. Remaining scope:
 
-**Effort:** ~1–1.5 days · **Research:** `docs/ELEMENT_INSPECTION_RESEARCH.md`
+- **Lanes and detectors** as inspectable kinds (static attrs are researched;
+  lanes need an invisible wide hit-area layer for clicking)
+- **Runtime edits** from the panel: lane speed, TLS phase durations
+  (`setProgramLogic` verified working) — marked "this run only"; then
+  file-backed persistence for TLS programs/flows/detectors
+- **Demand display** (flows per approach, from .rou.xml) — goes into the
+  generator-node markers when those exist (item 1)
+- **Multi-user selection**: `cmd.select` is a single global slot per adapter;
+  concurrent clients overwrite each other and all see the same inspect block.
+  Must be addressed before any multi-user deployment — per-client selections
+  keyed by the (already sent) `client` field, or request-reply inspection.
+
+**Research:** `docs/ELEMENT_INSPECTION_RESEARCH.md`
 
 ---
 
 ## Done
 
+- **Element inspector v1** (2026-07-03) — click a vehicle or traffic light:
+  right-side panel (mutually exclusive with LOG), static section from
+  network GeoJSON (TLS program tables embedded at Load), live section via
+  `sim.{scenario}.cmd.select` → `inspect` block in state messages + one-shot
+  on selection. TLS view: program table, current phase, next-switch
+  countdown. m/s units, no emissions (decisions 2026-07-03). Known
+  single-selection limitation documented in README + above.
 - **Simulation log viewer** (2026-07-03) — structured events on sparse
   `sim.{scenario}.log`, LOG button + unread badge + overlay, startup warnings
   via `GET /api/adapter/log/{scenario}`; Load runs a one-step SUMO check so

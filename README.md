@@ -62,7 +62,21 @@ sim.{scenario}.cmd.resume
 sim.{scenario}.cmd.stop
 sim.{scenario}.cmd.speed    payload: {"v": <float 0.1–50>}
 sim.{scenario}.cmd.scale    payload: {"v": <float 0.1–5>}
+sim.{scenario}.cmd.select   payload: {"kind": "vehicle"|"tls", "id": ..., "client": ...}
+                            empty payload deselects
 ```
+
+`select` makes the adapter attach an `inspect` block (vehicle: ~24 fields —
+speed, route, leader, next signal, time loss…; tls: program table, current
+phase, next switch) to every state message, plus one immediate
+`{"type": "inspect", ...}` message so panels fill while paused.
+
+> **Known limitation (multi-user):** the selection is a single global slot per
+> adapter — every subscriber sees the same inspect block, and concurrent
+> clients (second browser, OC tooling) overwrite each other's selection. Fine
+> for the current single-operator use; a multi-user setup needs per-client
+> selections keyed by the `client` field (already in the payload for forward
+> compatibility) or request-reply inspection. Tracked in TODO.md.
 
 State message:
 ```json
@@ -202,6 +216,7 @@ adapter degrade gracefully.
 | Traffic slider | Vehicle insertion scale (0.1× – 5×) via `simulation.setScale` |
 | BLK / OSM | Toggle CartoDB Light basemap |
 | LOG | Open simulation log overlay — startup warnings (amber, from SUMO stderr) + live events (collisions red, teleports orange, emergency stops yellow); unread badge while closed |
+| Click vehicle / junction | Element inspector (right side, closes LOG and vice versa): vehicles show live state incl. leader gap, next signal, time loss; traffic lights show the program table with current phase + next-switch countdown (works statically after Load too). Click empty map to deselect. Units are SUMO-native (m/s) |
 
 Demand is defined as flows (`vehsPerHour` per route), not explicit vehicle
 lists. Longer durations repeat the same hourly rates — there are no diurnal

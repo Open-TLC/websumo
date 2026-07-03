@@ -39,8 +39,8 @@ export function LogPanel({ open, startupLines, entries, onClose }: Props) {
 
   return (
     <div style={{
-      position: 'absolute', top: 12, right: 12, bottom: 12, zIndex: 20,
-      width: 420, maxWidth: '45vw',
+      position: 'absolute', top: 12, right: 12, zIndex: 20,
+      width: 420, maxWidth: '45vw', maxHeight: '60vh',
       background: 'rgba(10,10,28,0.97)', borderRadius: 8,
       border: '1px solid #5a5aaa', backdropFilter: 'blur(4px)',
       boxShadow: '0 2px 16px rgba(0,0,0,0.8)',

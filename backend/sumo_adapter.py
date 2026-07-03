@@ -34,7 +34,69 @@ def _collect_events() -> list[dict]:
     return events
 
 
-def _do_step(net: object) -> dict | None:
+def _inspect_vehicle(vid: str) -> dict:
+    v = traci.vehicle
+    leader = v.getLeader(vid)
+    next_tls = v.getNextTLS(vid)
+    return {
+        'kind': 'vehicle', 'id': vid,
+        'type': v.getTypeID(vid),
+        'vclass': v.getVehicleClass(vid),
+        'speed': round(v.getSpeed(vid), 2),
+        'allowedSpeed': round(v.getAllowedSpeed(vid), 2),
+        'accel': round(v.getAcceleration(vid), 2),
+        'lane': v.getLaneID(vid),
+        'lanePos': round(v.getLanePosition(vid), 1),
+        'route': v.getRouteID(vid),
+        'routeEdges': list(v.getRoute(vid)),
+        'routeIndex': v.getRouteIndex(vid),
+        'departure': round(v.getDeparture(vid), 1),
+        'departDelay': round(v.getDepartDelay(vid), 1),
+        'waiting': round(v.getWaitingTime(vid), 1),
+        'accumWaiting': round(v.getAccumulatedWaitingTime(vid), 1),
+        'timeLoss': round(v.getTimeLoss(vid), 1),
+        'distance': round(v.getDistance(vid), 1),
+        'leader': [leader[0], round(leader[1], 1)] if leader else None,
+        'nextTLS': [next_tls[0][0], round(next_tls[0][2], 1), next_tls[0][3]] if next_tls else None,
+        'speedFactor': round(v.getSpeedFactor(vid), 3),
+        'length': v.getLength(vid),
+        'width': v.getWidth(vid),
+        'minGap': v.getMinGap(vid),
+    }
+
+
+def _inspect_tls(tls_id: str) -> dict:
+    t = traci.trafficlight
+    program = t.getProgram(tls_id)
+    phases = []
+    for logic in t.getAllProgramLogics(tls_id):
+        if logic.programID == program:
+            phases = [[p.duration, p.state] for p in logic.phases]
+            break
+    return {
+        'kind': 'tls', 'id': tls_id,
+        'program': program,
+        'phase': t.getPhase(tls_id),
+        'state': t.getRedYellowGreenState(tls_id),
+        'nextSwitch': round(t.getNextSwitch(tls_id), 1),
+        'spent': round(t.getSpentDuration(tls_id), 1),
+        'phases': phases,
+    }
+
+
+def _inspect_block(sel: dict) -> dict:
+    """Inspect payload for the selected element; 'gone' marker if it vanished."""
+    try:
+        if sel['kind'] == 'vehicle':
+            return _inspect_vehicle(sel['id'])
+        if sel['kind'] == 'tls':
+            return _inspect_tls(sel['id'])
+    except Exception:
+        pass
+    return {'kind': sel['kind'], 'id': sel['id'], 'gone': True}
+
+
+def _do_step(net: object, sel: dict | None = None) -> dict | None:
     """Advance one simulation step and return state, or None if sim ended."""
     traci.simulationStep()
     if traci.simulation.getMinExpectedNumber() == 0:
@@ -61,13 +123,16 @@ def _do_step(net: object) -> dict | None:
                 or traci.inductionloop.getLastStepOccupancy(det_id) > 0
         for det_id in traci.inductionloop.getIDList()
     }
-    return {
+    out = {
         't': round(traci.simulation.getTime(), 1),
         'vehicles': vehicles,
         'tls': tls,
         'detectors': detectors,
         'events': _collect_events(),
     }
+    if sel:
+        out['inspect'] = _inspect_block(sel)
+    return out
 
 
 def _stretch_flows(scenario: str, end_time: int) -> str:
@@ -101,9 +166,16 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None) -> None
     paused     = False
     step_delay = 0.05   # seconds between steps (20 steps/sec = 1× speed)
     pending: dict = {}  # buffered commands applied before next step
+    # single global selection per adapter — all subscribers see the same
+    # inspect block; a multi-user setup needs per-client selections (see
+    # docs/ELEMENT_INSPECTION_RESEARCH.md). 'client' field reserved for that.
+    selected: dict | None = None
+
+    loop = asyncio.get_running_loop()
+    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='libsumo')
 
     async def on_cmd(msg: nats.aio.msg.Msg) -> None:
-        nonlocal paused, step_delay
+        nonlocal paused, step_delay, selected
         cmd = msg.subject.rsplit('.', 1)[-1]
         data = json.loads(msg.data) if msg.data else {}
         if cmd == 'pause':
@@ -117,6 +189,18 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None) -> None
             step_delay = 0.05 / v
         elif cmd == 'scale':
             pending['scale'] = max(0.1, min(float(data.get('v', 1.0)), 5.0))
+        elif cmd == 'select':
+            kind, oid = data.get('kind'), data.get('id')
+            selected = {'kind': kind, 'id': oid} if kind and oid else None
+            if selected:
+                # immediate one-shot so the panel fills without waiting for
+                # the next step (matters when paused or at low speed);
+                # executor keeps all libsumo calls on one thread
+                block = await loop.run_in_executor(executor, _inspect_block, selected)
+                await nc.publish(
+                    f'sim.{scenario}.state',
+                    json.dumps({'type': 'inspect', 'inspect': block}).encode(),
+                )
 
     await nc.subscribe(f'sim.{scenario}.cmd.*', cb=on_cmd)
 
@@ -135,9 +219,6 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None) -> None
         ]
     traci.start(sumo_cmd)
 
-    loop = asyncio.get_running_loop()
-    executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='libsumo')
-
     try:
         while True:
             if pending.get('stop'):
@@ -149,10 +230,14 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None) -> None
                 scale = pending.pop('scale')
                 await loop.run_in_executor(executor, traci.simulation.setScale, scale)
 
-            result = await loop.run_in_executor(executor, _do_step, net)
+            result = await loop.run_in_executor(executor, _do_step, net, selected)
             if result is None:
                 await nc.publish(f'sim.{scenario}.end', b'{}')
                 break
+
+            # a vanished element (arrived vehicle) reports gone once, then deselects
+            if result.get('inspect', {}).get('gone'):
+                selected = None
 
             events = result.pop('events')
             if events:

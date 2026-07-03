@@ -9,10 +9,13 @@ export interface MapViewHandle {
   updateStep: (vehicles: Vehicle[], tls: Record<string, string>, detectors: Record<string, boolean>, t: number) => void
   setBasemap: (on: boolean) => void
   fitNetwork: (gj: GeoJSON.FeatureCollection) => void
+  setSelected: (kind: 'vehicle' | 'tls' | null, id: string | null) => void
 }
 
 interface Props {
   networkGeoJSON: GeoJSON.FeatureCollection | null
+  onPick?: (kind: 'vehicle' | 'tls', id: string, props: Record<string, unknown>) => void
+  onPickAway?: () => void
 }
 
 interface StopLine {
@@ -78,18 +81,28 @@ const BLANK_STYLE: maplibregl.StyleSpecification = {
   layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#12121f' } }],
 }
 
-export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON }, ref) => {
+export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPick, onPickAway }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const deckRef = useRef<MapboxOverlay | null>(null)
   const stopLinesRef = useRef<StopLine[]>([])
   const detectorsRef = useRef<Detector[]>([])
+  const selectedRef = useRef<{ kind: string; id: string } | null>(null)
+  const lastStepRef = useRef<{ vehicles: Vehicle[]; tls: Record<string, string>; detectors: Record<string, boolean> }>(
+    { vehicles: [], tls: {}, detectors: {} })
+  const onPickRef = useRef(onPick)
+  const onPickAwayRef = useRef(onPickAway)
+  onPickRef.current = onPick
+  onPickAwayRef.current = onPickAway
 
   const renderDeck = (
     vehicles: Vehicle[],
     tls: Record<string, string>,
     detectors: Record<string, boolean>,
   ) => {
+    lastStepRef.current = { vehicles, tls, detectors }
+    const sel = selectedRef.current
+    const selVehicle = sel?.kind === 'vehicle' ? sel.id : null
     deckRef.current?.setProps({
       layers: [
         new LineLayer<Detector>({
@@ -120,9 +133,11 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON }, ref
           data: vehicles,
           getPolygon: (d) => vehiclePolygon(d[1], d[2], d[3], d[4], d[5]),
           getFillColor: (d) => vehicleColor(d[6]),
-          getLineColor: [0, 0, 0, 80],
+          getLineColor: (d) => d[0] === selVehicle ? [0, 240, 255, 255] : [0, 0, 0, 80],
+          getLineWidth: (d) => d[0] === selVehicle ? 1.2 : 0.3,
+          lineWidthUnits: 'meters',
           lineWidthMinPixels: 0.5,
-          pickable: false,
+          pickable: true,
         }),
       ],
     })
@@ -160,6 +175,19 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON }, ref
     updateStep(vehicles: Vehicle[], tls: Record<string, string>, detectors: Record<string, boolean>) {
       renderDeck(vehicles, tls, detectors)
     },
+    setSelected(kind, id) {
+      selectedRef.current = kind && id ? { kind, id } : null
+      const { vehicles, tls, detectors } = lastStepRef.current
+      renderDeck(vehicles, tls, detectors)
+      const map = mapRef.current
+      if (map?.getLayer('junction-area-outline')) {
+        const selJunction = kind === 'tls' ? id : ''
+        map.setPaintProperty('junction-area-outline', 'line-color',
+          ['case', ['==', ['get', 'id'], selJunction], '#00f0ff', '#3a3a60'])
+        map.setPaintProperty('junction-area-outline', 'line-width',
+          ['case', ['==', ['get', 'id'], selJunction], 2.5, 1])
+      }
+    },
   }))
 
   // Initialise map once
@@ -176,6 +204,25 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON }, ref
     map.addControl(deck)
     mapRef.current = map
     deckRef.current = deck
+
+    // unified picking: deck.gl vehicles first (they draw on top),
+    // then MapLibre junction areas, else deselect
+    map.on('click', (e) => {
+      const pick = deck.pickObject?.({
+        x: e.point.x, y: e.point.y, radius: 4, layerIds: ['vehicles'],
+      })
+      if (pick?.object) {
+        onPickRef.current?.('vehicle', (pick.object as Vehicle)[0], {})
+        return
+      }
+      const feats = map.queryRenderedFeatures(e.point, { layers: ['junction-areas'] })
+      const tlsFeat = feats.find((f) => f.properties?.node_type === 'traffic_light')
+      if (tlsFeat) {
+        onPickRef.current?.('tls', tlsFeat.properties!.id as string, tlsFeat.properties ?? {})
+        return
+      }
+      onPickAwayRef.current?.()
+    })
 
     // CartoDB Light basemap — hidden by default, toggled via setBasemap()
     map.once('load', () => {

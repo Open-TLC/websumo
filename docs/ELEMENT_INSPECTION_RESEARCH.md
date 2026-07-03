@@ -4,6 +4,12 @@
 *Researched and verified 2026-07-03 against fi.helsinki.269 with sumolib/libsumo 1.27.0.
 This is the web equivalent of sumo-gui's right-click → "Show Parameter" dialogs.*
 
+> **Status: v1 IMPLEMENTED (2026-07-03)** — vehicles + traffic lights,
+> read-only, m/s, no emissions (user decisions). Single global selection per
+> adapter accepted for v1; **this must be revisited for any multi-user
+> deployment** (see §3 of the plan discussion and TODO.md). Lanes/detectors,
+> runtime edits, and demand display remain open — tracked in TODO.md.
+
 ## 1. What the tools expose, per element kind
 
 Two complementary sources, mirroring the split already used everywhere in
