@@ -216,7 +216,7 @@ adapter degrade gracefully.
 | Traffic slider | Vehicle insertion scale (0.1× – 5×) via `simulation.setScale` |
 | BLK / OSM | Toggle CartoDB Light basemap |
 | LOG | Open simulation log overlay — startup warnings (amber, from SUMO stderr) + live events (collisions red, teleports orange, emergency stops yellow); unread badge while closed |
-| Click vehicle / junction | Element inspector (right side, closes LOG and vice versa): vehicles show live state incl. leader gap, next signal, time loss; traffic lights show the program table with current phase + next-switch countdown (works statically after Load too). Click empty map to deselect. Units are SUMO-native (m/s) |
+| Click vehicle / junction | Element inspector (right side, closes LOG and vice versa): vehicles show live state incl. leader gap, next signal, time loss; traffic lights show the program table with current phase + next-switch countdown (works statically after Load too — the click target is the junction's area polygon around the intersection centre). Click empty map to deselect. Units are SUMO-native (m/s) |
 
 Demand is defined as flows (`vehsPerHour` per route), not explicit vehicle
 lists. Longer durations repeat the same hourly rates — there are no diurnal
