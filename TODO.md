@@ -33,6 +33,19 @@ command path are missing.
 
 **Research:** `docs/NATS_TRACI_REPLACEMENT_RESEARCH.md`, `docs/INTEGRATION_ROADMAP.md`
 
+## 3. Element inspector — click any element, see its properties
+
+Pickable vehicles/lanes/junctions/detectors; right-side inspector panel with a
+static section (sumolib attributes, works after Load) and a live section
+(streamed per step for the selected element via `sim.{scenario}.cmd.select` →
+`inspect` block in state messages, ~0.13 ms/inspect verified). TLS view shows
+the program table with current phase + next-switch countdown. No editing in
+v1; runtime edits (lane speed, TLS durations — verified working via libsumo
+setters) are the natural follow-up, then file-backed persistence for TLS
+programs/flows/detectors.
+
+**Effort:** ~1–1.5 days · **Research:** `docs/ELEMENT_INSPECTION_RESEARCH.md`
+
 ---
 
 ## Done
