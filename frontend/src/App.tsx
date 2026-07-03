@@ -137,18 +137,25 @@ export default function App() {
   }, [basemap])
 
   const handleToggleLog = useCallback(() => {
-    const opening = !logOpen
-    setLogOpen(opening)
-    if (opening) {
-      setLogUnread(0)
-      if (scenario) {
-        fetch(`/api/adapter/log/${encodeURIComponent(scenario)}`)
-          .then((r) => r.json())
-          .then((d: { lines: string[] }) => setStartupLines(d.lines ?? []))
-          .catch(() => setStartupLines([]))
-      }
+    setLogOpen((open) => !open)
+    setLogUnread(0)
+  }, [])
+
+  // keep the stderr tail fresh while the panel is open: fetch on open (and on
+  // sim start/stop transitions), poll while the simulation is active
+  useEffect(() => {
+    if (!logOpen || !scenario) return
+    const fetchLines = () => {
+      fetch(`/api/adapter/log/${encodeURIComponent(scenario)}`)
+        .then((r) => r.json())
+        .then((d: { lines: string[] }) => setStartupLines(d.lines ?? []))
+        .catch(() => {})
     }
-  }, [logOpen, scenario])
+    fetchLines()
+    if (simState !== 'running' && simState !== 'paused') return
+    const id = setInterval(fetchLines, 3000)
+    return () => clearInterval(id)
+  }, [logOpen, scenario, simState])
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>

@@ -5,6 +5,7 @@ import glob
 import json
 import os
 import pathlib
+import re
 import signal
 import subprocess
 
@@ -95,13 +96,23 @@ def start_adapter(req: StartRequest) -> dict:
     return {'ok': True, 'scenario': req.scenario, 'end': req.end}
 
 
+# runtime warnings already delivered as structured events on sim.{scenario}.log —
+# filtered here so the stderr view shows only what the event stream can't
+_DYNAMIC_WARNING = re.compile(
+    r'Teleporting vehicle|teleports beyond|performs emergency stop'
+)
+
+
 @api.get('/adapter/log/{scenario}')
-def get_adapter_log(scenario: str, lines: int = 200) -> dict:
+def get_adapter_log(scenario: str, lines: int = 200, full: bool = False) -> dict:
     """Tail of the adapter's stderr log (SUMO startup warnings, live C++ output)."""
     path = pathlib.Path(f'/tmp/sumo_adapter_{scenario}.log')
     if not path.exists():
         return {'lines': []}
-    return {'lines': path.read_text(errors='replace').splitlines()[-lines:]}
+    out = path.read_text(errors='replace').splitlines()
+    if not full:
+        out = [l for l in out if not _DYNAMIC_WARNING.search(l)]
+    return {'lines': out[-lines:]}
 
 
 @api.post('/adapter/stop')
