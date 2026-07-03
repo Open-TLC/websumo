@@ -93,7 +93,11 @@ from libsumo's structured APIs (`getCollisions`, `getStartingTeleportIDList`,
 warnings 1:1 (timestamps differ by one step: SUMO stamps step begin, the
 adapter stamps step end). SUMO's free-text startup warnings are served
 separately via `GET /api/adapter/log/{scenario}` (tail of the adapter's stderr
-log — `--log FILE` is buffered until close and unusable live).
+log — `--log FILE` is buffered until close and unusable live). That endpoint
+filters out runtime teleport/emergency warnings by default since they
+duplicate the structured event stream; pass `?full=true` for the raw tail.
+Load runs a one-step SUMO check in the background so the same warnings are
+available before Start (skipped while an adapter is running).
 
 Any NATS client (OC, recorder, custom tool) can subscribe to `sim.{scenario}.state`
 or publish commands to `sim.{scenario}.cmd.*` alongside the browser. Commands are
@@ -188,7 +192,7 @@ adapter degrade gracefully.
 
 | Control | Effect |
 |---------|--------|
-| Load | Render network GeoJSON, fit map to bounds |
+| Load | Render network GeoJSON, fit map to bounds; runs a one-step SUMO check in the background so load warnings show in LOG immediately |
 | Length | Simulation duration (1 h / 4 h / 8 h / 24 h) — flow rates are stretched to cover the chosen span |
 | ▶ Start | Launch libsumo adapter, connect WebSocket |
 | ⏸ / ▶ | Pause / resume simulation |

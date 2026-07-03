@@ -39,9 +39,10 @@ command path are missing.
 
 - **Simulation log viewer** (2026-07-03) — structured events on sparse
   `sim.{scenario}.log`, LOG button + unread badge + overlay, startup warnings
-  via `GET /api/adapter/log/{scenario}`. Verified: structured events match
-  SUMO stderr warnings 1:1 (70/70 teleports on a 269 run; timestamps offset
-  by exactly one step). See `docs/SIMULATION_LOG_RESEARCH.md`.
+  via `GET /api/adapter/log/{scenario}`; Load runs a one-step SUMO check so
+  warnings show before Start. Verified: structured events match SUMO stderr
+  warnings 1:1 (70/70 teleports on a 269 run; timestamps offset by exactly
+  one step). See `docs/SIMULATION_LOG_RESEARCH.md`.
 
 ---
 

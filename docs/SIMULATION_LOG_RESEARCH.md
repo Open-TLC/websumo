@@ -3,6 +3,12 @@
 
 *Researched and verified 2026-07-02 against fi.helsinki.269 with libsumo 1.27.0.*
 
+> **Status: IMPLEMENTED (2026-07-03).** Both channels shipped as designed,
+> plus a load-time check (one-step SUMO run on Load so warnings show before
+> Start). Verification: structured events matched stderr warnings 70/70 on a
+> full 269 run, timestamps offset by exactly one step (SUMO stamps step begin,
+> the adapter stamps step end). See README for the final subject/endpoint schema.
+
 ## The question
 
 sumo-gui shows a message log panel (warnings, teleports, collisions, errors)
