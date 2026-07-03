@@ -61,11 +61,30 @@ def list_scenarios() -> list[str]:
     return [pathlib.Path(c).stem for c in cfgs]
 
 
+def _run_load_check(scenario: str) -> None:
+    """Run SUMO for one step in the background to capture load-time warnings.
+
+    Populates the same stderr log the panel reads, so network/route warnings
+    are visible right after Load — like sumo-gui's log on config open.
+    Skipped while an adapter is running (it owns the log file).
+    """
+    if _adapter_proc and _adapter_proc.poll() is None:
+        return
+    cmd = ['sumo', '-c', f'{SCENARIOS_DIR}/{scenario}.sumocfg',
+           '--no-step-log', '--end', '1']
+    detectors_xml = f'{SCENARIOS_DIR}/{scenario}.detectors.xml'
+    if os.path.exists(detectors_xml):
+        cmd += ['--additional-files', detectors_xml]
+    with open(f'/tmp/sumo_adapter_{scenario}.log', 'w') as log:
+        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=log)
+
+
 @api.get('/network/{scenario}')
 def get_network(scenario: str) -> dict:
     net_xml = pathlib.Path(SCENARIOS_DIR) / f'{scenario}.net.xml'
     if not net_xml.exists():
         raise HTTPException(404, f'No net.xml for scenario: {scenario}')
+    _run_load_check(scenario)
     return build_network_geojson(str(net_xml))
 
 

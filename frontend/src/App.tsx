@@ -141,8 +141,9 @@ export default function App() {
     setLogUnread(0)
   }, [])
 
-  // keep the stderr tail fresh while the panel is open: fetch on open (and on
-  // sim start/stop transitions), poll while the simulation is active
+  // keep the stderr tail fresh while the panel is open — the log file is
+  // (re)written outside the UI's control (Load check, adapter start), so
+  // polling is the only reliable way to reflect it
   useEffect(() => {
     if (!logOpen || !scenario) return
     const fetchLines = () => {
@@ -152,10 +153,9 @@ export default function App() {
         .catch(() => {})
     }
     fetchLines()
-    if (simState !== 'running' && simState !== 'paused') return
     const id = setInterval(fetchLines, 3000)
     return () => clearInterval(id)
-  }, [logOpen, scenario, simState])
+  }, [logOpen, scenario])
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
