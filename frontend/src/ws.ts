@@ -1,10 +1,13 @@
 export type Vehicle = [string, number, number, number, number, number, string]
 // [id, lon, lat, angleDeg, lengthM, widthM, vclass]
 
+export type LogEvent = { type: string; text: string; lane?: string }
+
 export class SimSocket {
   private ws: WebSocket | null = null
   onStep: ((vehicles: Vehicle[], tls: Record<string, string>, detectors: Record<string, boolean>, t: number) => void) | null = null
   onEnd: (() => void) | null = null
+  onLog: ((t: number, events: LogEvent[]) => void) | null = null
 
   connect(scenario: string): void {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -13,6 +16,8 @@ export class SimSocket {
       const d = JSON.parse(e.data)
       if (d.type === 'end') {
         this.onEnd?.()
+      } else if (d.type === 'log') {
+        this.onLog?.(d.t ?? 0, d.events ?? [])
       } else {
         this.onStep?.(d.vehicles ?? [], d.tls ?? {}, d.detectors ?? {}, d.t ?? 0)
       }

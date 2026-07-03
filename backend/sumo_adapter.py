@@ -14,6 +14,26 @@ import sumolib
 SCENARIOS_DIR = os.environ.get('SCENARIOS_DIR', '/tmp/shared/sumotest')
 
 
+def _collect_events() -> list[dict]:
+    """Exceptional events this step (collisions, teleports, emergency stops).
+
+    Structured equivalents of sumo-gui's log panel; departed/arrived are
+    deliberately excluded as high-volume noise.
+    """
+    events = []
+    for c in traci.simulation.getCollisions():
+        events.append({
+            'type': 'collision',
+            'text': f'{c.collider} vs {c.victim}',
+            'lane': c.lane,
+        })
+    for vid in traci.simulation.getStartingTeleportIDList():
+        events.append({'type': 'teleport', 'text': vid})
+    for vid in traci.simulation.getEmergencyStoppingVehiclesIDList():
+        events.append({'type': 'emergency', 'text': vid})
+    return events
+
+
 def _do_step(net: object) -> dict | None:
     """Advance one simulation step and return state, or None if sim ended."""
     traci.simulationStep()
@@ -46,6 +66,7 @@ def _do_step(net: object) -> dict | None:
         'vehicles': vehicles,
         'tls': tls,
         'detectors': detectors,
+        'events': _collect_events(),
     }
 
 
@@ -133,6 +154,12 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None) -> None
                 await nc.publish(f'sim.{scenario}.end', b'{}')
                 break
 
+            events = result.pop('events')
+            if events:
+                await nc.publish(
+                    f'sim.{scenario}.log',
+                    json.dumps({'type': 'log', 't': result['t'], 'events': events}).encode(),
+                )
             await nc.publish(
                 f'sim.{scenario}.state',
                 json.dumps(result).encode(),

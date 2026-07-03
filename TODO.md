@@ -33,18 +33,15 @@ command path are missing.
 
 **Research:** `docs/NATS_TRACI_REPLACEMENT_RESEARCH.md`, `docs/INTEGRATION_ROADMAP.md`
 
-## 3. Simulation log viewer — LOG button + event stream
+---
 
-Structured events (collisions, teleports, emergency stops) published on a
-sparse `sim.{scenario}.log` subject; LOG button with unread badge opens a
-dismissible overlay. Startup warnings served from the adapter's stderr log
-(live — `--log FILE` is buffered until close and unusable).
+## Done
 
-- sumo_adapter.py: per-step event collection, publish only when non-empty (~25 lines)
-- main.py: relay `sim.{scenario}.log` + `GET /api/adapter/log/{scenario}` tail endpoint (~20 lines)
-- Frontend: LOG button + badge + overlay (~60 lines)
-
-**Effort:** ~half a day · **Research:** `docs/SIMULATION_LOG_RESEARCH.md`
+- **Simulation log viewer** (2026-07-03) — structured events on sparse
+  `sim.{scenario}.log`, LOG button + unread badge + overlay, startup warnings
+  via `GET /api/adapter/log/{scenario}`. Verified: structured events match
+  SUMO stderr warnings 1:1 (70/70 teleports on a 269 run; timestamps offset
+  by exactly one step). See `docs/SIMULATION_LOG_RESEARCH.md`.
 
 ---
 

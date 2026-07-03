@@ -95,6 +95,15 @@ def start_adapter(req: StartRequest) -> dict:
     return {'ok': True, 'scenario': req.scenario, 'end': req.end}
 
 
+@api.get('/adapter/log/{scenario}')
+def get_adapter_log(scenario: str, lines: int = 200) -> dict:
+    """Tail of the adapter's stderr log (SUMO startup warnings, live C++ output)."""
+    path = pathlib.Path(f'/tmp/sumo_adapter_{scenario}.log')
+    if not path.exists():
+        return {'lines': []}
+    return {'lines': path.read_text(errors='replace').splitlines()[-lines:]}
+
+
 @api.post('/adapter/stop')
 def stop_adapter() -> dict:
     global _adapter_proc
@@ -129,6 +138,8 @@ async def ws_endpoint(websocket: WebSocket, scenario: str) -> None:
 
     await nc.subscribe(f'sim.{scenario}.state', cb=on_state)
     await nc.subscribe(f'sim.{scenario}.end',   cb=on_end)
+    # log payloads already carry {"type": "log"} — forward verbatim like state
+    await nc.subscribe(f'sim.{scenario}.log',   cb=on_state)
 
     try:
         while True:

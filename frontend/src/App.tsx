@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Controls } from './Controls'
+import { LogPanel, type LogEntry } from './LogPanel'
 import { MapView, type MapViewHandle } from './MapView'
 import { SimSocket } from './ws'
 
@@ -15,9 +16,15 @@ export default function App() {
   const [trafficScale, setTrafficScale] = useState(1.0)
   const [duration, setDuration] = useState(3600)
   const [basemap, setBasemap] = useState(false)
+  const [logOpen, setLogOpen] = useState(false)
+  const [logUnread, setLogUnread] = useState(0)
+  const [logEntries, setLogEntries] = useState<LogEntry[]>([])
+  const [startupLines, setStartupLines] = useState<string[]>([])
 
   const mapRef    = useRef<MapViewHandle>(null)
   const sockRef   = useRef<SimSocket>(new SimSocket())
+  const logOpenRef = useRef(false)
+  logOpenRef.current = logOpen
 
   useEffect(() => {
     fetch('/api/scenarios')
@@ -65,10 +72,17 @@ export default function App() {
         setSimState('ended')
         sock.close()
       }
+      sock.onLog = (t, events) => {
+        setLogEntries((prev) => [...prev, ...events.map((e) => ({ t, ...e }))].slice(-500))
+        if (!logOpenRef.current) setLogUnread((u) => u + events.length)
+      }
       sock.connect(scenario)
 
       setSimState('running')
       setSimTime(0)
+      setLogEntries([])
+      setLogUnread(0)
+      setStartupLines([])
     } catch (e) {
       console.error(e)
       alert(`Failed to start: ${e}`)
@@ -122,6 +136,20 @@ export default function App() {
     mapRef.current?.setBasemap(next)
   }, [basemap])
 
+  const handleToggleLog = useCallback(() => {
+    const opening = !logOpen
+    setLogOpen(opening)
+    if (opening) {
+      setLogUnread(0)
+      if (scenario) {
+        fetch(`/api/adapter/log/${encodeURIComponent(scenario)}`)
+          .then((r) => r.json())
+          .then((d: { lines: string[] }) => setStartupLines(d.lines ?? []))
+          .catch(() => setStartupLines([]))
+      }
+    }
+  }, [logOpen, scenario])
+
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
       <MapView ref={mapRef} networkGeoJSON={networkGeoJSON} />
@@ -134,6 +162,8 @@ export default function App() {
         trafficScale={trafficScale}
         duration={duration}
         basemap={basemap}
+        logUnread={logUnread}
+        onToggleLog={handleToggleLog}
         onScenarioChange={setScenario}
         onDurationChange={setDuration}
         onLoad={handleLoad}
@@ -145,6 +175,12 @@ export default function App() {
         onSpeedChange={handleSpeedChange}
         onTrafficScaleChange={handleTrafficScaleChange}
         onBasemapToggle={handleBasemapToggle}
+      />
+      <LogPanel
+        open={logOpen}
+        startupLines={startupLines}
+        entries={logEntries}
+        onClose={handleToggleLog}
       />
     </div>
   )

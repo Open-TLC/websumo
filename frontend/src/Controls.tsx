@@ -7,6 +7,8 @@ interface Props {
   trafficScale: number
   duration: number
   basemap: boolean
+  logUnread: number
+  onToggleLog: () => void
   onScenarioChange: (s: string) => void
   onDurationChange: (d: number) => void
   onLoad: () => void
@@ -47,6 +49,7 @@ const DURATIONS = [
 
 export function Controls({
   scenarios, scenario, simState, simTime, speed, trafficScale, duration, basemap,
+  logUnread, onToggleLog,
   onScenarioChange, onDurationChange, onLoad, onStart, onPause, onResume, onStop, onReset,
   onSpeedChange, onTrafficScaleChange, onBasemapToggle,
 }: Props) {
@@ -72,18 +75,42 @@ export function Controls({
         <div style={{ fontSize: 15, fontWeight: 700, color: '#aac', letterSpacing: 1 }}>
           WebSUMO
         </div>
-        <button
-          onClick={onBasemapToggle}
-          title="Toggle OSM basemap"
-          style={{
-            padding: '3px 10px', border: `1px solid ${basemap ? '#5a8aff' : '#3a3a6a'}`,
-            borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 600,
-            background: basemap ? '#1a2a4a' : '#1a1a30',
-            color: basemap ? '#8ab4ff' : '#667',
-          }}
-        >
-          {basemap ? 'OSM' : 'BLK'}
-        </button>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button
+            onClick={onToggleLog}
+            title="Simulation log"
+            style={{
+              position: 'relative',
+              padding: '3px 10px', border: `1px solid ${logUnread > 0 ? '#ffb056' : '#3a3a6a'}`,
+              borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 600,
+              background: '#1a1a30',
+              color: logUnread > 0 ? '#ffb056' : '#667',
+            }}
+          >
+            LOG
+            {logUnread > 0 && (
+              <span style={{
+                position: 'absolute', top: -7, right: -7,
+                background: '#c04040', color: '#fff', borderRadius: 8,
+                fontSize: 9, fontWeight: 700, padding: '1px 5px', minWidth: 8,
+              }}>
+                {logUnread > 99 ? '99+' : logUnread}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={onBasemapToggle}
+            title="Toggle OSM basemap"
+            style={{
+              padding: '3px 10px', border: `1px solid ${basemap ? '#5a8aff' : '#3a3a6a'}`,
+              borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 600,
+              background: basemap ? '#1a2a4a' : '#1a1a30',
+              color: basemap ? '#8ab4ff' : '#667',
+            }}
+          >
+            {basemap ? 'OSM' : 'BLK'}
+          </button>
+        </div>
       </div>
 
       {/* Scenario selector */}

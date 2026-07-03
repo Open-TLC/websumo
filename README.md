@@ -12,7 +12,8 @@ Browser (deck.gl + MapLibre)
   ├── GET  /api/network/{scenario} → GeoJSON (lanes, junctions, stop lines)
   ├── POST /api/adapter/start      → launch libsumo adapter subprocess
   ├── POST /api/adapter/stop       → stop adapter
-  └── WS   /api/ws/{scenario}      → stream per-step state (vehicles + TLS)
+  ├── GET  /api/adapter/log/{scenario} → tail of adapter stderr (startup warnings)
+  └── WS   /api/ws/{scenario}      → stream per-step state + log events
                   ↕ NATS (localhost:4222)
         sumo_adapter.py  [libsumo embedded, one process per simulation]
                   ↕ libsumo (in-process, ~8× faster than TraCI socket)
@@ -54,6 +55,8 @@ contain `.sumocfg` and `.net.xml` files (produced by `graph2sumo`).
 ```
 sim.{scenario}.state     ← adapter publishes after each step
 sim.{scenario}.end       ← adapter publishes when simulation finishes
+sim.{scenario}.log       ← adapter publishes exceptional events (sparse — only
+                           on steps with collisions/teleports/emergency stops)
 sim.{scenario}.cmd.pause
 sim.{scenario}.cmd.resume
 sim.{scenario}.cmd.stop
@@ -72,6 +75,25 @@ State message:
 ```
 `detectors` maps each induction loop ID to its occupancy (vehicle present or
 passed during the last step).
+
+Log message (only published on steps where something exceptional happened):
+```json
+{
+  "type": "log",
+  "t": 146.0,
+  "events": [
+    {"type": "collision", "text": "flow_12.1 vs flow_18.1", "lane": "exit_..._car_0"},
+    {"type": "teleport",  "text": "flow_12.1"}
+  ]
+}
+```
+Event types: `collision`, `teleport`, `emergency` (emergency stop). These come
+from libsumo's structured APIs (`getCollisions`, `getStartingTeleportIDList`,
+`getEmergencyStoppingVehiclesIDList`) — verified to match SUMO's stderr
+warnings 1:1 (timestamps differ by one step: SUMO stamps step begin, the
+adapter stamps step end). SUMO's free-text startup warnings are served
+separately via `GET /api/adapter/log/{scenario}` (tail of the adapter's stderr
+log — `--log FILE` is buffered until close and unusable live).
 
 Any NATS client (OC, recorder, custom tool) can subscribe to `sim.{scenario}.state`
 or publish commands to `sim.{scenario}.cmd.*` alongside the browser. Commands are
@@ -175,6 +197,7 @@ adapter degrade gracefully.
 | Speed slider | Wall-clock rate (0.1× – 50×) |
 | Traffic slider | Vehicle insertion scale (0.1× – 5×) via `simulation.setScale` |
 | BLK / OSM | Toggle CartoDB Light basemap |
+| LOG | Open simulation log overlay — startup warnings (amber, from SUMO stderr) + live events (collisions red, teleports orange, emergency stops yellow); unread badge while closed |
 
 Demand is defined as flows (`vehsPerHour` per route), not explicit vehicle
 lists. Longer durations repeat the same hourly rates — there are no diurnal
