@@ -135,6 +135,38 @@ def _do_step(net: object, sel: dict | None = None) -> dict | None:
     return out
 
 
+def _build_route_cache() -> dict:
+    """Map each starting edge → route ids that begin there (built once at start)."""
+    routes_from: dict[str, list[str]] = {}
+    for rid in traci.route.getIDList():
+        edges = traci.route.getEdges(rid)
+        if edges:
+            routes_from.setdefault(edges[0], []).append(rid)
+    return routes_from
+
+
+def _spawn(routes_from: dict, edge: str, vtype: str, veh_id: str, pick: int) -> dict:
+    """Inject one vehicle of `vtype` at entry `edge`. Runs in the libsumo thread.
+
+    `departLane/Pos='free'` are required — the default 'base' silently queues
+    under load (see docs/GENERATOR_NODES_RESEARCH.md).
+    """
+    route_ids = routes_from.get(edge)
+    if not route_ids:
+        return {'ok': False, 'error': f'no route from edge {edge}'}
+    if vtype not in traci.vehicletype.getIDList():
+        return {'ok': False, 'error': f'unknown vtype {vtype}'}
+    route_id = route_ids[pick % len(route_ids)]   # rotate for destination variety
+    try:
+        traci.vehicle.add(
+            veh_id, route_id, typeID=vtype, depart='now',
+            departLane='free', departPos='free', departSpeed='max',
+        )
+        return {'ok': True, 'id': veh_id, 'edge': edge, 'vtype': vtype}
+    except Exception as e:   # vClass/route mismatch, jam — must not crash adapter
+        return {'ok': False, 'error': str(e)}
+
+
 def _stretch_flows(scenario: str, end_time: int) -> str:
     """Write a temp route file with flow end times extended to end_time.
 
@@ -170,12 +202,15 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None) -> None
     # inspect block; a multi-user setup needs per-client selections (see
     # docs/ELEMENT_INSPECTION_RESEARCH.md). 'client' field reserved for that.
     selected: dict | None = None
+    route_cache: dict = {}   # first-edge → [route_ids]; filled after traci.start
+    spawn_n = 0              # unique manual_{n} vehicle ids
+    last_t = 0.0             # last step time (thread-safe: no libsumo call in callbacks)
 
     loop = asyncio.get_running_loop()
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='libsumo')
 
     async def on_cmd(msg: nats.aio.msg.Msg) -> None:
-        nonlocal paused, step_delay, selected
+        nonlocal paused, step_delay, selected, spawn_n
         cmd = msg.subject.rsplit('.', 1)[-1]
         data = json.loads(msg.data) if msg.data else {}
         if cmd == 'pause':
@@ -201,6 +236,22 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None) -> None
                     f'sim.{scenario}.state',
                     json.dumps({'type': 'inspect', 'inspect': block}).encode(),
                 )
+        elif cmd == 'spawn':
+            edge, vtype = data.get('edge'), data.get('vtype')
+            if edge and vtype:
+                spawn_n += 1
+                veh_id = f'manual_{spawn_n}'
+                result = await loop.run_in_executor(
+                    executor, _spawn, route_cache, edge, vtype, veh_id, spawn_n)
+                # injected vehicles appear in the state stream on their own; only
+                # surface failures, on the log subject so the LOG panel shows them
+                if not result['ok']:
+                    await nc.publish(
+                        f'sim.{scenario}.log',
+                        json.dumps({'type': 'log', 't': last_t,
+                                    'events': [{'type': 'spawn-failed',
+                                                'text': f"{vtype} @ {edge}: {result['error']}"}]}).encode(),
+                    )
 
     await nc.subscribe(f'sim.{scenario}.cmd.*', cb=on_cmd)
 
@@ -218,6 +269,7 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None) -> None
             '--route-files', _stretch_flows(scenario, end_time),
         ]
     traci.start(sumo_cmd)
+    route_cache.update(_build_route_cache())
 
     try:
         while True:
@@ -234,6 +286,7 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None) -> None
             if result is None:
                 await nc.publish(f'sim.{scenario}.end', b'{}')
                 break
+            last_t = result['t']
 
             # a vanished element (arrived vehicle) reports gone once, then deselects
             if result.get('inspect', {}).get('gone'):

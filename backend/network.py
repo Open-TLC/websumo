@@ -82,6 +82,79 @@ def _detector_features(net_xml_path: str, net) -> list:
     return features
 
 
+def _vtype_vclasses(net_xml_path: str) -> dict:
+    """Map each scenario vType id → its vClass, read from {scenario}.rou.xml.
+
+    vType (the concrete type injected, e.g. 'car') and vClass (its movement
+    class, e.g. 'passenger') are distinct — see the naming contract in
+    docs/GENERATOR_NODES_RESEARCH.md.
+    """
+    p = pathlib.Path(net_xml_path)
+    rou = p.parent / p.name.replace('.net.xml', '.rou.xml')
+    if not rou.exists():
+        return {}
+    return {
+        vt.get('id'): (vt.get('vClass') or 'passenger')
+        for vt in ET.parse(rou).getroot().iter('vType')
+        if vt.get('id')
+    }
+
+
+def _route_first_edges(net_xml_path: str) -> set:
+    """Edges that start at least one route in {scenario}.rou.xml.
+
+    A generator can only inject where a route originates, so entry edges with
+    no route (e.g. tram exits) get no marker.
+    """
+    p = pathlib.Path(net_xml_path)
+    rou = p.parent / p.name.replace('.net.xml', '.rou.xml')
+    if not rou.exists():
+        return set()
+    firsts = set()
+    for r in ET.parse(rou).getroot().iter('route'):
+        edges = (r.get('edges') or '').split()
+        if edges:
+            firsts.add(edges[0])
+    return firsts
+
+
+def _generator_features(net_xml_path: str, net) -> list:
+    """Injection points at each entry edge (no incoming edges) that starts a
+    route, with the vType ids the entry's lanes accept — click-to-generate."""
+    vtypes = _vtype_vclasses(net_xml_path)
+    route_starts = _route_first_edges(net_xml_path)
+    if not vtypes or not route_starts:
+        return []
+
+    features = []
+    for edge in net.getEdges():
+        if edge.getFunction() == 'internal' or edge.getIncoming():
+            continue   # entry edges have no upstream edge
+        if edge.getID() not in route_starts:
+            continue   # nothing can be injected here
+        lanes = edge.getLanes()
+        if not lanes:
+            continue
+        accepted = [vid for vid, vclass in vtypes.items()
+                    if any(lane.allows(vclass) for lane in lanes)]
+        if not accepted:
+            continue
+        shape = lanes[0].getShape()
+        if len(shape) < 1:
+            continue
+        lon, lat = net.convertXY2LonLat(*shape[0])
+        features.append({
+            'type': 'Feature',
+            'properties': {
+                'type': 'generator',
+                'edge': edge.getID(),
+                'vtypes': accepted,   # vType ids, not vClasses
+            },
+            'geometry': {'type': 'Point', 'coordinates': [lon, lat]},
+        })
+    return features
+
+
 def build_network_geojson(net_xml_path: str) -> dict:
     if net_xml_path in _cache:
         return _cache[net_xml_path]
@@ -167,6 +240,9 @@ def build_network_geojson(net_xml_path: str) -> dict:
 
     # Induction loop detectors (bars across lanes, live status via deck.gl)
     features.extend(_detector_features(net_xml_path, net))
+
+    # Generator markers (click to inject a vehicle at an entry edge)
+    features.extend(_generator_features(net_xml_path, net))
 
     geojson = {'type': 'FeatureCollection', 'features': features}
     _cache[net_xml_path] = geojson

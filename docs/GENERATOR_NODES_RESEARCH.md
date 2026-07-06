@@ -3,6 +3,12 @@
 
 *Researched and verified 2026-07-02 against fi.helsinki.269 with libsumo 1.27.0.*
 
+> **Status: IMPLEMENTED (2026-07-03).** Shipped as designed: green markers at
+> entry edges that start a route (filtered by `.rou.xml` origins + lane vClass
+> masks), `sim.{scenario}.cmd.spawn`, Inject vType selector, `spawn-failed`
+> events on the log subject. Destination choice and demand display remain as
+> enhancements (TODO item 3). The naming contract below is authoritative.
+
 ## The idea
 
 Clickable "generator" markers at the upstream end of each approach edge.

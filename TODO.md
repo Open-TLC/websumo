@@ -3,24 +3,7 @@
 Planned features, each with completed feasibility research. Ordered by
 priority; effort estimates from the linked research docs.
 
-## 1. Generator nodes — click-to-inject vehicles
-
-Clickable markers at approach entries; clicking injects a single vehicle of
-the selected type (car/truck/tram). Verified feasible via `libsumo.vehicle.add()`
-with `departLane='free'` (default `'base'` silently queues under load).
-
-- network.py: `generator` Point features at entry edges listing accepted `vtypes` (~25 lines)
-- sumo_adapter.py: `sim.{scenario}.cmd.spawn` subject, route cache, unique `manual_{n}` IDs (~30 lines)
-- MapView.tsx: pickable markers, click → publish spawn (~40 lines)
-- Controls.tsx: vType selector (~20 lines)
-
-Naming contract settled (fix list #12): spawn payload uses `vtype` (a typeID),
-generator features list accepted `vtypes`, state stream keeps `vclass` — see the
-"Naming contract" section in the research doc. Do not conflate the three.
-
-**Effort:** ~1 day · **Research:** `docs/GENERATOR_NODES_RESEARCH.md`
-
-## 2. Open Controller integration
+## 1. Open Controller integration
 
 Make the adapter a drop-in replacement for OC's `simengine_integrated.py`.
 Detector occupancy is already read every step — only the republish and the
@@ -42,7 +25,7 @@ command path are missing.
 
 **Research:** `docs/NATS_TRACI_REPLACEMENT_RESEARCH.md`, `docs/INTEGRATION_ROADMAP.md`
 
-## 3. Element inspector — extend beyond vehicles + TLS
+## 2. Element inspector — extend beyond vehicles + TLS
 
 v1 (vehicles + traffic lights) is done — see Done below. Remaining scope:
 
@@ -51,8 +34,6 @@ v1 (vehicles + traffic lights) is done — see Done below. Remaining scope:
 - **Runtime edits** from the panel: lane speed, TLS phase durations
   (`setProgramLogic` verified working) — marked "this run only"; then
   file-backed persistence for TLS programs/flows/detectors
-- **Demand display** (flows per approach, from .rou.xml) — goes into the
-  generator-node markers when those exist (item 1)
 - **Multi-user selection**: `cmd.select` is a single global slot per adapter;
   concurrent clients overwrite each other and all see the same inspect block.
   Must be addressed before any multi-user deployment — per-client selections
@@ -60,10 +41,28 @@ v1 (vehicles + traffic lights) is done — see Done below. Remaining scope:
 
 **Research:** `docs/ELEMENT_INSPECTION_RESEARCH.md`
 
+## 3. Generator enhancements (base feature shipped — see Done)
+
+- **Destination choice**: click a generator then an exit to pick the route
+  (`cmd.spawn` already accepts an optional `dest`; adapter route-matching +
+  a two-click UI flow remain)
+- **Demand display**: show the flows feeding an approach (from `.rou.xml`) in a
+  generator marker's tooltip/panel — the deferred element-inspector "demand"
+  idea, now that generator markers exist
+- **Spawn feedback**: surface queued/failed injections in the UI (adapter
+  already emits `spawn-failed` on the log subject)
+
 ---
 
 ## Done
 
+- **Generator nodes** (2026-07-03) — green markers at entry edges that start a
+  route (network.py filters by `.rou.xml` route origins + lane vClass masks,
+  listing accepted `vtypes`); click a marker to inject one vehicle of the
+  selected vType via `sim.{scenario}.cmd.spawn` (`vehicle.add` with
+  `departLane/Pos='free'`, `manual_N` ids). Controls has an Inject vType
+  selector; failures surface on the log subject as `spawn-failed`. Verified:
+  truck/tram/car inject correctly on 269, route-less entries get no marker.
 - **Element inspector v1** (2026-07-03) — click a vehicle or traffic light:
   right-side panel (mutually exclusive with LOG), static section from
   network GeoJSON (TLS program tables embedded at Load), live section via

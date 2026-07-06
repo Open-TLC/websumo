@@ -2,7 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { MapboxOverlay } from '@deck.gl/mapbox'
-import { PolygonLayer, LineLayer } from '@deck.gl/layers'
+import { PolygonLayer, LineLayer, ScatterplotLayer } from '@deck.gl/layers'
 import type { Vehicle } from './ws'
 
 export interface MapViewHandle {
@@ -16,6 +16,7 @@ interface Props {
   networkGeoJSON: GeoJSON.FeatureCollection | null
   onPick?: (kind: 'vehicle' | 'tls', id: string, props: Record<string, unknown>) => void
   onPickAway?: () => void
+  onGenerate?: (edge: string, vtypes: string[]) => void
 }
 
 interface StopLine {
@@ -29,6 +30,12 @@ interface Detector {
   from: [number, number]
   to: [number, number]
   id: string
+}
+
+interface Generator {
+  position: [number, number]
+  edge: string
+  vtypes: string[]
 }
 
 function tlsColor(stateStr: string | undefined, sigIdx: number): [number, number, number, number] {
@@ -81,19 +88,22 @@ const BLANK_STYLE: maplibregl.StyleSpecification = {
   layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#12121f' } }],
 }
 
-export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPick, onPickAway }, ref) => {
+export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPick, onPickAway, onGenerate }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const deckRef = useRef<MapboxOverlay | null>(null)
   const stopLinesRef = useRef<StopLine[]>([])
   const detectorsRef = useRef<Detector[]>([])
+  const generatorsRef = useRef<Generator[]>([])
   const selectedRef = useRef<{ kind: string; id: string } | null>(null)
   const lastStepRef = useRef<{ vehicles: Vehicle[]; tls: Record<string, string>; detectors: Record<string, boolean> }>(
     { vehicles: [], tls: {}, detectors: {} })
   const onPickRef = useRef(onPick)
   const onPickAwayRef = useRef(onPickAway)
+  const onGenerateRef = useRef(onGenerate)
   onPickRef.current = onPick
   onPickAwayRef.current = onPickAway
+  onGenerateRef.current = onGenerate
 
   const renderDeck = (
     vehicles: Vehicle[],
@@ -127,6 +137,18 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
           getWidth: 3,
           widthUnits: 'pixels',
           updateTriggers: { getColor: tls },
+        }),
+        new ScatterplotLayer<Generator>({
+          id: 'generators',
+          data: generatorsRef.current,
+          getPosition: (d) => d.position,
+          getRadius: 5,
+          radiusUnits: 'pixels',
+          getFillColor: [40, 200, 90, 210],
+          getLineColor: [230, 255, 235, 240],
+          lineWidthMinPixels: 1.5,
+          stroked: true,
+          pickable: true,
         }),
         new PolygonLayer<Vehicle>({
           id: 'vehicles',
@@ -205,14 +227,19 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
     mapRef.current = map
     deckRef.current = deck
 
-    // unified picking: deck.gl vehicles first (they draw on top),
+    // unified picking: deck.gl generators (explicit markers) then vehicles,
     // then MapLibre junction areas, else deselect
     map.on('click', (e) => {
       const pick = deck.pickObject?.({
-        x: e.point.x, y: e.point.y, radius: 4, layerIds: ['vehicles'],
+        x: e.point.x, y: e.point.y, radius: 6, layerIds: ['generators', 'vehicles'],
       })
       if (pick?.object) {
-        onPickRef.current?.('vehicle', (pick.object as Vehicle)[0], {})
+        if (pick.layer?.id === 'generators') {
+          const g = pick.object as Generator
+          onGenerateRef.current?.(g.edge, g.vtypes)
+        } else {
+          onPickRef.current?.('vehicle', (pick.object as Vehicle)[0], {})
+        }
         return
       }
       const feats = map.queryRenderedFeatures(e.point, { layers: ['junction-areas'] })
@@ -273,7 +300,16 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
           }
         })
 
-      // Show static geometry (detectors dim, stop lines grey) before sim starts
+      // Parse generator markers (click to inject a vehicle at that entry)
+      generatorsRef.current = networkGeoJSON.features
+        .filter((f) => f.properties?.type === 'generator')
+        .map((f) => ({
+          position: (f.geometry as GeoJSON.Point).coordinates as [number, number],
+          edge: f.properties!.edge as string,
+          vtypes: (f.properties!.vtypes as string[]) ?? [],
+        }))
+
+      // Show static geometry (detectors dim, stop lines grey, generators) before sim starts
       renderDeck([], {}, {})
 
       if (map.getSource(SOURCE)) {

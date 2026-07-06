@@ -23,6 +23,8 @@ export default function App() {
   const [startupLines, setStartupLines] = useState<string[]>([])
   const [selected, setSelected] = useState<Selected | null>(null)
   const [inspectLive, setInspectLive] = useState<InspectBlock | null>(null)
+  const [genVtypes, setGenVtypes] = useState<string[]>([])   // vTypes offered by the loaded network
+  const [genVtype, setGenVtype] = useState('')               // currently selected injection vType
 
   const mapRef    = useRef<MapViewHandle>(null)
   const sockRef   = useRef<SimSocket>(new SimSocket())
@@ -30,6 +32,10 @@ export default function App() {
   logOpenRef.current = logOpen
   const selectedRef = useRef<Selected | null>(null)
   selectedRef.current = selected
+  const genVtypeRef = useRef('')
+  genVtypeRef.current = genVtype
+  const simStateRef = useRef<SimState>('idle')
+  simStateRef.current = simState
   // a select sent right after Start can beat the adapter's NATS subscription
   // and be dropped — re-send once the first state message proves it's up
   const resendSelectRef = useRef(false)
@@ -52,10 +58,26 @@ export default function App() {
         setNetworkGeoJSON(gj)
         setSpeed(1.0)
         setTrafficScale(1.0)
+        // vType options for the generator selector = union of all generator markers
+        const vts = Array.from(new Set(
+          gj.features
+            .filter((f) => f.properties?.type === 'generator')
+            .flatMap((f) => (f.properties!.vtypes as string[]) ?? [])
+        )).sort()
+        setGenVtypes(vts)
+        setGenVtype((cur) => (cur && vts.includes(cur) ? cur : vts[0] ?? ''))
         mapRef.current?.fitNetwork(gj)
       })
       .catch(console.error)
   }, [scenario])
+
+  const handleGenerate = useCallback((edge: string, vtypes: string[]) => {
+    // spawning needs a running adapter; ignore clicks while idle/ended
+    if (simStateRef.current !== 'running' && simStateRef.current !== 'paused') return
+    // inject the selected vType if this entry accepts it, else its first accepted one
+    const vtype = vtypes.includes(genVtypeRef.current) ? genVtypeRef.current : vtypes[0]
+    if (vtype) sockRef.current.send('spawn', { edge, vtype })
+  }, [])
 
   const handleStart = useCallback(async () => {
     if (!scenario) return
@@ -223,6 +245,7 @@ export default function App() {
         networkGeoJSON={networkGeoJSON}
         onPick={handlePick}
         onPickAway={handleDeselect}
+        onGenerate={handleGenerate}
       />
       <Controls
         scenarios={scenarios}
@@ -234,6 +257,9 @@ export default function App() {
         duration={duration}
         basemap={basemap}
         logUnread={logUnread}
+        genVtypes={genVtypes}
+        genVtype={genVtype}
+        onGenVtypeChange={setGenVtype}
         onToggleLog={handleToggleLog}
         onScenarioChange={setScenario}
         onDurationChange={setDuration}

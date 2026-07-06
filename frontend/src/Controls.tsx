@@ -8,6 +8,9 @@ interface Props {
   duration: number
   basemap: boolean
   logUnread: number
+  genVtypes: string[]
+  genVtype: string
+  onGenVtypeChange: (v: string) => void
   onToggleLog: () => void
   onScenarioChange: (s: string) => void
   onDurationChange: (d: number) => void
@@ -49,7 +52,7 @@ const DURATIONS = [
 
 export function Controls({
   scenarios, scenario, simState, simTime, speed, trafficScale, duration, basemap,
-  logUnread, onToggleLog,
+  logUnread, genVtypes, genVtype, onGenVtypeChange, onToggleLog,
   onScenarioChange, onDurationChange, onLoad, onStart, onPause, onResume, onStop, onReset,
   onSpeedChange, onTrafficScaleChange, onBasemapToggle,
 }: Props) {
@@ -187,6 +190,28 @@ export function Controls({
           style={{ flex: 1 }}
         />
       </div>
+
+      {/* Generator vehicle type — click a green entry marker to inject */}
+      {genVtypes.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 11, color: '#778', width: 52 }}>Inject</span>
+          <select
+            value={genVtype}
+            onChange={(e) => onGenVtypeChange(e.target.value)}
+            style={{
+              flex: 1, padding: '5px 8px', borderRadius: 4,
+              background: '#1a1a30', border: '1px solid #3a3a6a', color: '#dde',
+            }}
+          >
+            {genVtypes.map((v) => (
+              <option key={v} value={v}>{v}</option>
+            ))}
+          </select>
+          <span style={{ fontSize: 10, color: active ? '#5c8' : '#667' }} title="Click a green marker at an entry to inject">
+            {active ? '● click entry' : 'start sim'}
+          </span>
+        </div>
+      )}
 
       {/* Sim time */}
       <div style={{ fontSize: 13, color: '#99b', fontVariantNumeric: 'tabular-nums' }}>
