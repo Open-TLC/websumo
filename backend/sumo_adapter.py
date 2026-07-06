@@ -97,14 +97,21 @@ def _inspect_block(sel: dict) -> dict:
     return {'kind': sel['kind'], 'id': sel['id'], 'gone': True}
 
 
-def _do_step(net: object, sel: dict | None = None) -> dict:
-    """Advance one simulation step and return state.
+def _do_step(net: object, sel: dict | None = None, full: bool = True) -> dict:
+    """Advance one simulation step.
 
-    `_empty` flags that no vehicles are expected/running; the caller decides
-    whether that means "end" — it does for flow-driven runs, but NOT when
-    traffic scale is 0 (an intentionally empty sim the user injects into)."""
+    Always steps and collects events (cheap) + the empty flag; gathers the full
+    vehicle/TLS/detector snapshot only when `full` (a UI frame). Steps between
+    frames skip the expensive per-vehicle serialization, so the sim runs fast
+    while the UI updates at a fixed ~10 Hz. `_empty` flags no vehicles
+    expected/running — the caller decides if that ends the run (not when
+    scale=0, an intentionally empty sim the user injects into)."""
     traci.simulationStep()
     empty = traci.simulation.getMinExpectedNumber() == 0
+    events = _collect_events()
+    t = round(traci.simulation.getTime(), 1)
+    if not full:
+        return {'t': t, 'events': events, '_empty': empty}
     vehicles = []
     for vid in traci.vehicle.getIDList():
         x, y = traci.vehicle.getPosition(vid)
@@ -128,11 +135,11 @@ def _do_step(net: object, sel: dict | None = None) -> dict:
         for det_id in traci.inductionloop.getIDList()
     }
     out = {
-        't': round(traci.simulation.getTime(), 1),
+        't': t,
         'vehicles': vehicles,
         'tls': tls,
         'detectors': detectors,
-        'events': _collect_events(),
+        'events': events,
         '_empty': empty,
     }
     if sel:
@@ -296,6 +303,7 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
 
     sumo_cmd = [
         'sumo', '-c', sumocfg,
+        '--step-length', '0.1',   # 10 physics steps per sim-second
         '--no-step-log',
         '--quit-on-end',
     ]
@@ -320,9 +328,12 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
     delta_t = await loop.run_in_executor(executor, traci.simulation.getDeltaT)  # sim-s/step
     # smoothed wall period between iteration starts — includes ALL overhead
     # (step, serialize, NATS flush, loop), so delta_t/period is the true rate
-    period_ema = None
-    prev_start = None
-    was_flat = False   # did the previous iteration run flat out (no sleep)?
+    last_frame = 0.0       # wall time of the last UI snapshot published
+    next_step = None       # absolute wall schedule for the next step (self-correcting)
+    achieved_ema = None    # smoothed actual sim-rate (×RT), measured per frame
+    prev_fw = None         # wall time of the previous frame
+    prev_ft = 0.0          # sim time of the previous frame
+    FRAME_DT = 0.095       # ~10 Hz UI, decoupled from the step rate
 
     try:
         while True:
@@ -330,18 +341,20 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
                 break
             if paused:
                 await asyncio.sleep(0.05)
-                prev_start = None   # don't count the paused gap as work
+                next_step = None    # resync schedule after pause
+                prev_fw = None      # don't count the paused gap as a frame
                 continue
             if 'scale' in pending:
                 scale = pending.pop('scale')
                 await loop.run_in_executor(executor, traci.simulation.setScale, scale)
 
             t_start = time.monotonic()
-            if prev_start is not None:
-                period = t_start - prev_start
-                period_ema = period if period_ema is None else 0.85 * period_ema + 0.15 * period
-            prev_start = t_start
-            result = await loop.run_in_executor(executor, _do_step, net, selected)
+            if next_step is None:
+                next_step = t_start
+            # only build the full vehicle snapshot on a UI frame (~10 Hz wall);
+            # in between, bare steps keep the sim moving cheaply
+            full = (t_start - last_frame) >= FRAME_DT
+            result = await loop.run_in_executor(executor, _do_step, net, selected, full)
             last_t = result['t']
             empty = result.pop('_empty')
             # End on: reaching the configured end time, OR an empty network — but
@@ -350,32 +363,45 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
                 await nc.publish(f'sim.{scenario}.end', b'{}')
                 break
 
-            # a vanished element (arrived vehicle) reports gone once, then deselects
-            if result.get('inspect', {}).get('gone'):
-                selected = None
-
+            # events are collected every step so nothing is missed between
+            # frames; publish immediately when present
             events = result.pop('events')
             if events:
                 await nc.publish(
                     f'sim.{scenario}.log',
-                    json.dumps({'type': 'log', 't': result['t'], 'events': events}).encode(),
+                    json.dumps({'type': 'log', 't': last_t, 'events': events}).encode(),
                 )
-            # Report a real ceiling only while flat out (previous iteration
-            # didn't sleep); otherwise a high sentinel = "keeping up, not
-            # limited". This makes the UI's clamp unambiguous — no false red
-            # from sleep jitter when we're actually hitting the requested rate.
-            result['maxRate'] = (round(delta_t / period_ema, 1)
-                                 if was_flat and period_ema else 9999.0)
-            await nc.publish(
-                f'sim.{scenario}.state',
-                json.dumps(result).encode(),
-            )
-            # pace to real-time × speed_req; if the work already overran the
-            # target period we run flat out (no sleep) — that's the ceiling
-            sleep = delta_t / speed_req - (time.monotonic() - t_start)
-            was_flat = sleep <= 0.002   # ~no sleep left => throughput-limited
-            if sleep > 0:
-                await asyncio.sleep(sleep)
+
+            if full:
+                last_frame = t_start
+                # a vanished element (arrived vehicle) reports gone once
+                if result.get('inspect', {}).get('gone'):
+                    selected = None
+                # actual sustained sim-rate (×RT) = sim advanced / wall elapsed
+                # since the last frame. Only when it falls meaningfully short of
+                # the request is the machine limited — reported so the UI clamps.
+                if prev_fw is not None and t_start > prev_fw:
+                    a = (last_t - prev_ft) / (t_start - prev_fw)
+                    achieved_ema = a if achieved_ema is None else 0.6 * achieved_ema + 0.4 * a
+                prev_fw, prev_ft = t_start, last_t
+                limited = achieved_ema is not None and achieved_ema < 0.9 * speed_req
+                result['maxRate'] = round(achieved_ema, 1) if limited else 9999.0
+                await nc.publish(
+                    f'sim.{scenario}.state',
+                    json.dumps(result).encode(),
+                )
+
+            # pace to real-time × speed_req against an ABSOLUTE schedule clock.
+            # asyncio.sleep can't accurately sleep < ~1 ms, so at high speed we
+            # DON'T reset on small delays — we let them accumulate across a few
+            # cheap steps into one sleepable chunk (the absolute clock keeps the
+            # average rate exact). Only a real backlog means flat-out (ceiling).
+            next_step += delta_t / speed_req
+            delay = next_step - time.monotonic()
+            if delay > 0.001:
+                await asyncio.sleep(delay)
+            elif delay < -0.1:
+                next_step = time.monotonic()      # cap backlog, don't spiral
     finally:
         try:
             traci.close()
