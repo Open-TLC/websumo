@@ -52,6 +52,30 @@ Also verified:
 4. **Vehicle IDs must be unique** across the whole run — a simple
    `manual_{counter}` in the adapter suffices.
 
+## Naming contract (settle before building — fix list #12)
+
+Three distinct identifiers are easy to conflate; keep them separate:
+
+- **vType** — a concrete `<vType>` id from the `.rou.xml` (`car`, `truck`,
+  `tram`, `pedestrian`). This is what `vehicle.add(typeID=...)` takes and what
+  the generator selects. Wire field name: **`vtype`**.
+- **vClass** — SUMO's movement-class enum (`passenger`, `truck`, `tram`,
+  `bus`, …). It is a *property of* a vType (`car`→`passenger`, `truck`→`truck`,
+  `tram`→`tram`) and is what lane allow/disallow masks are expressed in. The
+  state stream's 7th vehicle field is `vclass` (`getVehicleClass`), and
+  `MapView` colours by it — so a spawned `car` (vType) reports `passenger`
+  (vClass) and renders orange, correctly, with no generator-specific handling.
+- **Accepted set at a generator** — derived by matching each scenario vType's
+  vClass against the entry lane's allow mask. Expose it as a list of **vType
+  ids** (what the UI offers), not vClasses.
+
+So: the generator feature lists `vtypes`; the spawn payload sends `vtype`; the
+state stream keeps `vclass`. Do not rename the state field to `vtype` — they
+are different values. (Detectors have a parallel, harmless split: the adapter's
+`detectors` map and the GeoJSON detector `id` are keyed by the same SUMO
+inductionLoop id, so the frontend join `detectors[d.id]` works; only local
+variable names differ.)
+
 ## Design sketch
 
 ### Backend — network.py
@@ -60,10 +84,11 @@ Emit generator features at the upstream end of every entry edge (edges with
 no incoming connections; in our networks these are the `approach_*` edges):
 
 ```python
-# for each entry edge: Point at shape[0], plus which vtypes it accepts
+# for each entry edge: Point at shape[0], plus which vTYPES it accepts
+# (scenario vTypes whose vClass is permitted by the entry lane's allow mask)
 {'type': 'Feature',
  'properties': {'type': 'generator', 'edge': edge_id,
-                'vclasses': ['passenger', 'truck']},   # from lane allow masks
+                'vtypes': ['car', 'truck']},   # vType ids, not vClasses
  'geometry': {'type': 'Point', 'coordinates': [lon, lat]}}
 ```
 
@@ -75,6 +100,8 @@ New command subject, ~20 lines:
 sim.{scenario}.cmd.spawn    payload: {"edge": "approach_...", "vtype": "car",
                                       "dest": "exit_..." (optional)}
 ```
+`vtype` is the typeID passed to `vehicle.add`; validate it is one of the
+entry's accepted vTypes before injecting.
 
 Handler logic:
 1. Find routes starting with the given edge (cache `route_id → edges` at
@@ -94,9 +121,10 @@ stream — no changes needed to the state message or vehicle rendering.
 1. Render generator markers (deck.gl `ScatterplotLayer`, `pickable: true`) —
    e.g. green circles with a "+" at approach entries
 2. `onClick` → publish `cmd.spawn` with the edge ID and the currently selected
-   vehicle type
-3. Vehicle type selector: a small toggle in the control panel (car / truck /
-   tram) determining what a generator click injects
+   vType id (`vtype`)
+3. vType selector: a small toggle in the control panel (car / truck / tram —
+   these are vType ids) determining what a generator click injects; disable
+   vTypes not in the clicked generator's accepted `vtypes` list
 4. Optional later: click generator then click an exit to choose the
    destination; without it, destination is random among valid routes
 

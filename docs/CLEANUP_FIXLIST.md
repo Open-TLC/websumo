@@ -32,6 +32,7 @@ quick correctness/security wins.
 **Progress:**
 - Batch A (#1, #8) done 2026-07-03 — `_require_scenario` allowlist validation on all entry points; CORS restricted to `ALLOWED_ORIGINS`.
 - Batch B (#2, #5, #7) done 2026-07-03 — OC subject naming reconciled (`detector.control.*` / `group.control.*`, verify-against-OC caveat added), false "adapter already publishes OC subjects" claim removed; IMPLEMENTATION_PLAN marked HISTORICAL + dead link removed, INTEGRATION_ROADMAP updated to libsumo+NATS (Option 1 = done, `session.py`→`sumo_adapter.py`); dead `:9222` WebSocket config + README mentions removed.
+- #12 done 2026-07-03 (pulled forward — generator prerequisite) — `vtype`/`vclass`/accepted-`vtypes` naming contract nailed down in GENERATOR_NODES_RESEARCH.md + TODO; det_id/id clarified as a harmless local-name split.
 
 | # | Sev / Effort | Item |
 |---|---|---|
@@ -46,7 +47,7 @@ quick correctness/security wins.
 | 9 | Med / L | Serialize adapter lifecycle; make orphan-kill scenario-specific (not `pgrep`-by-name) |
 | 10 | Low / S | Untrack the 16 MB `nats-server` binary; document how to fetch it |
 | 11 | Low / S | Add mtime invalidation to the network GeoJSON cache |
-| 12 | Low / S | Reconcile `vclass`/`vtype` and `det_id`/`id` naming before the generator/OC join |
+| 12 | Low / S | ✅ Reconcile `vclass`/`vtype` and `det_id`/`id` naming before the generator/OC join |
 | 13 | Low / M | Convert `_stretch_flows` regex XML rewrite to ElementTree; clean up temp route files |
 | 14 | Med / M | Add LICENSE, `.env.example`, a minimal test + CI baseline |
 | 15 | Low / S | Centralize config; share the single NATS default; small doc-hygiene fixes |

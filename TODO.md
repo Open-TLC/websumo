@@ -9,10 +9,14 @@ Clickable markers at approach entries; clicking injects a single vehicle of
 the selected type (car/truck/tram). Verified feasible via `libsumo.vehicle.add()`
 with `departLane='free'` (default `'base'` silently queues under load).
 
-- network.py: `generator` Point features at entry edges with allowed vclasses (~25 lines)
+- network.py: `generator` Point features at entry edges listing accepted `vtypes` (~25 lines)
 - sumo_adapter.py: `sim.{scenario}.cmd.spawn` subject, route cache, unique `manual_{n}` IDs (~30 lines)
 - MapView.tsx: pickable markers, click → publish spawn (~40 lines)
-- Controls.tsx: vehicle type selector (~20 lines)
+- Controls.tsx: vType selector (~20 lines)
+
+Naming contract settled (fix list #12): spawn payload uses `vtype` (a typeID),
+generator features list accepted `vtypes`, state stream keeps `vclass` — see the
+"Naming contract" section in the research doc. Do not conflate the three.
 
 **Effort:** ~1 day · **Research:** `docs/GENERATOR_NODES_RESEARCH.md`
 
