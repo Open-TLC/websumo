@@ -222,6 +222,7 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
       style: BLANK_STYLE,
       center: [24.92, 60.165],
       zoom: 15,
+      doubleClickZoom: false,   // reserve double-click for interaction, not zoom
     })
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
     const deck = new MapboxOverlay({ layers: [] })
