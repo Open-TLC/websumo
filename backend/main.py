@@ -115,6 +115,8 @@ def get_network(scenario: str) -> dict:
 class StartRequest(BaseModel):
     scenario: str
     end: int | None = None   # simulation end time in seconds; None = use sumocfg default
+    scale: float = 1.0       # initial traffic scale (0 = no flow insertion)
+    speed: float = 1.0       # initial playback rate
 
 
 @api.post('/adapter/start')
@@ -133,7 +135,8 @@ def start_adapter(req: StartRequest) -> dict:
 
     log = open(f'/tmp/sumo_adapter_{req.scenario}.log', 'w')
     _adapter_proc = subprocess.Popen(
-        [sys.executable, str(ADAPTER_SCRIPT), req.scenario, str(req.end or 0)],
+        [sys.executable, str(ADAPTER_SCRIPT), req.scenario, str(req.end or 0),
+         str(req.scale), str(req.speed)],
         stdout=log,
         stderr=log,
     )

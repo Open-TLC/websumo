@@ -171,7 +171,6 @@ export function Controls({
           type="range" min={0.1} max={50} step={0.1}
           value={speed}
           onChange={(e) => onSpeedChange(parseFloat(e.target.value))}
-          disabled={!active}
           style={{ flex: 1 }}
         />
       </div>
@@ -183,10 +182,9 @@ export function Controls({
           {trafficScale.toFixed(1)}×
         </span>
         <input
-          type="range" min={0.1} max={5} step={0.1}
+          type="range" min={0} max={5} step={0.1}
           value={trafficScale}
           onChange={(e) => onTrafficScaleChange(parseFloat(e.target.value))}
-          disabled={!active}
           style={{ flex: 1 }}
         />
       </div>

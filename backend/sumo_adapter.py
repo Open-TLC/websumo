@@ -96,11 +96,14 @@ def _inspect_block(sel: dict) -> dict:
     return {'kind': sel['kind'], 'id': sel['id'], 'gone': True}
 
 
-def _do_step(net: object, sel: dict | None = None) -> dict | None:
-    """Advance one simulation step and return state, or None if sim ended."""
+def _do_step(net: object, sel: dict | None = None) -> dict:
+    """Advance one simulation step and return state.
+
+    `_empty` flags that no vehicles are expected/running; the caller decides
+    whether that means "end" — it does for flow-driven runs, but NOT when
+    traffic scale is 0 (an intentionally empty sim the user injects into)."""
     traci.simulationStep()
-    if traci.simulation.getMinExpectedNumber() == 0:
-        return None
+    empty = traci.simulation.getMinExpectedNumber() == 0
     vehicles = []
     for vid in traci.vehicle.getIDList():
         x, y = traci.vehicle.getPosition(vid)
@@ -129,6 +132,7 @@ def _do_step(net: object, sel: dict | None = None) -> dict | None:
         'tls': tls,
         'detectors': detectors,
         'events': _collect_events(),
+        '_empty': empty,
     }
     if sel:
         out['inspect'] = _inspect_block(sel)
@@ -191,7 +195,8 @@ def _stretch_flows(scenario: str, end_time: int) -> str:
     return dst
 
 
-async def run(scenario: str, nats_url: str, end_time: int | None = None) -> None:
+async def run(scenario: str, nats_url: str, end_time: int | None = None,
+              init_scale: float = 1.0, init_speed: float = 1.0) -> None:
     nc = await nats.connect(nats_url)
 
     sumocfg = f'{SCENARIOS_DIR}/{scenario}.sumocfg'
@@ -199,7 +204,8 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None) -> None
     net = sumolib.net.readNet(net_xml, withInternal=False)
 
     paused     = False
-    step_delay = 0.05   # seconds between steps (20 steps/sec = 1× speed)
+    # initial playback rate from the pre-Start slider (applied from t=0)
+    step_delay = 0.05 / max(0.1, min(init_speed, 50.0))
     pending: dict = {}  # buffered commands applied before next step
     # single global selection per adapter — all subscribers see the same
     # inspect block; a multi-user setup needs per-client selections (see
@@ -208,12 +214,13 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None) -> None
     route_cache: dict = {}   # first-edge → [route_ids]; filled after traci.start
     spawn_n = 0              # unique manual_{n} vehicle ids
     last_t = 0.0             # last step time (thread-safe: no libsumo call in callbacks)
+    current_scale = max(0.0, min(init_scale, 5.0))   # 0 => don't auto-end on empty
 
     loop = asyncio.get_running_loop()
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='libsumo')
 
     async def on_cmd(msg: nats.aio.msg.Msg) -> None:
-        nonlocal paused, step_delay, selected, spawn_n
+        nonlocal paused, step_delay, selected, spawn_n, current_scale
         cmd = msg.subject.rsplit('.', 1)[-1]
         data = json.loads(msg.data) if msg.data else {}
         if cmd == 'pause':
@@ -226,7 +233,9 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None) -> None
             v = max(0.1, min(float(data.get('v', 1.0)), 50.0))
             step_delay = 0.05 / v
         elif cmd == 'scale':
-            pending['scale'] = max(0.1, min(float(data.get('v', 1.0)), 5.0))
+            # 0 = no flow insertion (only manual/generator vehicles)
+            current_scale = max(0.0, min(float(data.get('v', 1.0)), 5.0))
+            pending['scale'] = current_scale
         elif cmd == 'select':
             kind, oid = data.get('kind'), data.get('id')
             selected = {'kind': kind, 'id': oid} if kind and oid else None
@@ -274,6 +283,12 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None) -> None
         ]
     traci.start(sumo_cmd)
     route_cache.update(_build_route_cache())
+    # apply the pre-Start traffic scale before the first step, so scale=0 means
+    # truly zero flow insertion from t=0 (no vehicles slip in during startup)
+    await loop.run_in_executor(executor, traci.simulation.setScale, current_scale)
+    # configured end time (from --end or the sumocfg); bounds a scale=0 run that
+    # would otherwise never see an empty-network end
+    end_bound = await loop.run_in_executor(executor, traci.simulation.getEndTime)
 
     try:
         while True:
@@ -287,10 +302,13 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None) -> None
                 await loop.run_in_executor(executor, traci.simulation.setScale, scale)
 
             result = await loop.run_in_executor(executor, _do_step, net, selected)
-            if result is None:
+            last_t = result['t']
+            empty = result.pop('_empty')
+            # End on: reaching the configured end time, OR an empty network — but
+            # NOT when scale is 0 (an intentionally empty sim awaiting injection).
+            if (end_bound > 0 and last_t >= end_bound) or (empty and current_scale > 0):
                 await nc.publish(f'sim.{scenario}.end', b'{}')
                 break
-            last_t = result['t']
 
             # a vanished element (arrived vehicle) reports gone once, then deselects
             if result.get('inspect', {}).get('gone'):
@@ -318,16 +336,18 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None) -> None
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
-        print('Usage: sumo_adapter.py <scenario> [end_time_s] [nats_url]', file=sys.stderr)
+        print('Usage: sumo_adapter.py <scenario> [end_time_s] [scale] [speed]', file=sys.stderr)
         sys.exit(1)
 
     scenario = sys.argv[1]
     end_time = int(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2] != '0' else None
-    nats_url  = sys.argv[3] if len(sys.argv) > 3 else 'nats://localhost:4222'
+    init_scale = float(sys.argv[3]) if len(sys.argv) > 3 else 1.0
+    init_speed = float(sys.argv[4]) if len(sys.argv) > 4 else 1.0
+    nats_url = os.environ.get('NATS_URL', 'nats://localhost:4222')
 
     # clean shutdown on SIGTERM (sent by FastAPI on adapter/stop)
     def _sigterm(signum, frame):
         sys.exit(0)
     signal.signal(signal.SIGTERM, _sigterm)
 
-    asyncio.run(run(scenario, nats_url, end_time))
+    asyncio.run(run(scenario, nats_url, end_time, init_scale, init_speed))

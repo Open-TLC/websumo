@@ -36,6 +36,11 @@ export default function App() {
   genVtypeRef.current = genVtype
   const simStateRef = useRef<SimState>('idle')
   simStateRef.current = simState
+  // speed/traffic can be tuned before Start; read at Start and applied from t=0
+  const speedRef = useRef(1.0)
+  speedRef.current = speed
+  const trafficScaleRef = useRef(1.0)
+  trafficScaleRef.current = trafficScale
   // a select sent right after Start can beat the adapter's NATS subscription
   // and be dropped — re-send once the first state message proves it's up
   const resendSelectRef = useRef(false)
@@ -85,7 +90,8 @@ export default function App() {
       const res = await fetch('/api/adapter/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scenario, end: duration }),
+        // pass the pre-Start slider values so the adapter applies them from t=0
+        body: JSON.stringify({ scenario, end: duration, scale: trafficScaleRef.current, speed: speedRef.current }),
       })
       if (!res.ok) {
         const err = await res.json()

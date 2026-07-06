@@ -73,7 +73,7 @@ sim.{scenario}.cmd.pause
 sim.{scenario}.cmd.resume
 sim.{scenario}.cmd.stop
 sim.{scenario}.cmd.speed    payload: {"v": <float 0.1–50>}
-sim.{scenario}.cmd.scale    payload: {"v": <float 0.1–5>}
+sim.{scenario}.cmd.scale    payload: {"v": <float 0–5>}  (0 = no flow insertion)
 sim.{scenario}.cmd.select   payload: {"kind": "vehicle"|"tls", "id": ..., "client": ...}
                             empty payload deselects
 sim.{scenario}.cmd.spawn    payload: {"edge": "approach_...", "vtype": "car",
@@ -235,8 +235,8 @@ adapter degrade gracefully.
 | ⏸ / ▶ | Pause / resume simulation |
 | ■ Stop | Stop simulation, clear vehicles |
 | ↺ Reset | Force-stop adapter, return to idle |
-| Speed slider | Wall-clock rate (0.1× – 50×) |
-| Traffic slider | Vehicle insertion scale (0.1× – 5×) via `simulation.setScale` |
+| Speed slider | Wall-clock rate (0.1× – 50×). Tunable **before** Start; applied from t=0 |
+| Traffic slider | Vehicle insertion scale (**0× – 5×**) via `simulation.setScale`. **0 = no flow insertion** — an empty sim you populate with the generators (it stays running until the duration/Stop rather than ending on empty). Tunable before Start; applied from t=0 |
 | BLK / OSM | Toggle CartoDB Light basemap |
 | LOG | Open simulation log overlay — startup warnings (amber, from SUMO stderr) + live events (collisions red, teleports orange, emergency stops yellow); unread badge while closed |
 | Click vehicle / junction | Element inspector (right side, closes LOG and vice versa): vehicles show live state incl. leader gap, next signal, time loss; traffic lights show the program table with current phase + next-switch countdown (works statically after Load too — the click target is the junction's area polygon around the intersection centre). Click empty map to deselect. Units are SUMO-native (m/s) |
