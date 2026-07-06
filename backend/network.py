@@ -119,8 +119,12 @@ def _route_first_edges(net_xml_path: str) -> set:
 
 
 def _generator_features(net_xml_path: str, net) -> list:
-    """Injection points at each entry edge (no incoming edges) that starts a
-    route, with the vType ids the entry's lanes accept — click-to-generate."""
+    """One injection marker per input lane of each entry edge (no incoming
+    edges) that starts a route, positioned at that lane's upstream end and
+    listing the vType ids that lane accepts — click-to-generate, lane by lane.
+
+    Lanes that accept no known vType (e.g. a bike-only lane when there is no
+    bike vType) get no marker."""
     vtypes = _vtype_vclasses(net_xml_path)
     route_starts = _route_first_edges(net_xml_path)
     if not vtypes or not route_starts:
@@ -132,26 +136,24 @@ def _generator_features(net_xml_path: str, net) -> list:
             continue   # entry edges have no upstream edge
         if edge.getID() not in route_starts:
             continue   # nothing can be injected here
-        lanes = edge.getLanes()
-        if not lanes:
-            continue
-        accepted = [vid for vid, vclass in vtypes.items()
-                    if any(lane.allows(vclass) for lane in lanes)]
-        if not accepted:
-            continue
-        shape = lanes[0].getShape()
-        if len(shape) < 1:
-            continue
-        lon, lat = net.convertXY2LonLat(*shape[0])
-        features.append({
-            'type': 'Feature',
-            'properties': {
-                'type': 'generator',
-                'edge': edge.getID(),
-                'vtypes': accepted,   # vType ids, not vClasses
-            },
-            'geometry': {'type': 'Point', 'coordinates': [lon, lat]},
-        })
+        for lane in edge.getLanes():
+            accepted = [vid for vid, vclass in vtypes.items() if lane.allows(vclass)]
+            if not accepted:
+                continue   # this lane accepts no injectable vType
+            shape = lane.getShape()
+            if len(shape) < 1:
+                continue
+            lon, lat = net.convertXY2LonLat(*shape[0])
+            features.append({
+                'type': 'Feature',
+                'properties': {
+                    'type': 'generator',
+                    'edge': edge.getID(),
+                    'lane': lane.getIndex(),   # inject onto this specific lane
+                    'vtypes': accepted,        # vType ids, not vClasses
+                },
+                'geometry': {'type': 'Point', 'coordinates': [lon, lat]},
+            })
     return features
 
 

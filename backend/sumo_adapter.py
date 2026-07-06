@@ -145,11 +145,13 @@ def _build_route_cache() -> dict:
     return routes_from
 
 
-def _spawn(routes_from: dict, edge: str, vtype: str, veh_id: str, pick: int) -> dict:
+def _spawn(routes_from: dict, edge: str, vtype: str, veh_id: str, pick: int,
+           lane: int | None = None) -> dict:
     """Inject one vehicle of `vtype` at entry `edge`. Runs in the libsumo thread.
 
-    `departLane/Pos='free'` are required — the default 'base' silently queues
-    under load (see docs/GENERATOR_NODES_RESEARCH.md).
+    `departLane` targets a specific lane index when given (lane-by-lane markers),
+    otherwise 'free'; `departPos='free'` is required — the default 'base'
+    silently queues under load (see docs/GENERATOR_NODES_RESEARCH.md).
     """
     route_ids = routes_from.get(edge)
     if not route_ids:
@@ -157,12 +159,13 @@ def _spawn(routes_from: dict, edge: str, vtype: str, veh_id: str, pick: int) -> 
     if vtype not in traci.vehicletype.getIDList():
         return {'ok': False, 'error': f'unknown vtype {vtype}'}
     route_id = route_ids[pick % len(route_ids)]   # rotate for destination variety
+    depart_lane = str(lane) if lane is not None else 'free'
     try:
         traci.vehicle.add(
             veh_id, route_id, typeID=vtype, depart='now',
-            departLane='free', departPos='free', departSpeed='max',
+            departLane=depart_lane, departPos='free', departSpeed='max',
         )
-        return {'ok': True, 'id': veh_id, 'edge': edge, 'vtype': vtype}
+        return {'ok': True, 'id': veh_id, 'edge': edge, 'vtype': vtype, 'lane': lane}
     except Exception as e:   # vClass/route mismatch, jam — must not crash adapter
         return {'ok': False, 'error': str(e)}
 
@@ -238,11 +241,12 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None) -> None
                 )
         elif cmd == 'spawn':
             edge, vtype = data.get('edge'), data.get('vtype')
+            lane = data.get('lane')   # specific lane index, or None for 'free'
             if edge and vtype:
                 spawn_n += 1
                 veh_id = f'manual_{spawn_n}'
                 result = await loop.run_in_executor(
-                    executor, _spawn, route_cache, edge, vtype, veh_id, spawn_n)
+                    executor, _spawn, route_cache, edge, vtype, veh_id, spawn_n, lane)
                 # injected vehicles appear in the state stream on their own; only
                 # surface failures, on the log subject so the LOG panel shows them
                 if not result['ok']:

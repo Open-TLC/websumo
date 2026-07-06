@@ -16,7 +16,7 @@ interface Props {
   networkGeoJSON: GeoJSON.FeatureCollection | null
   onPick?: (kind: 'vehicle' | 'tls', id: string, props: Record<string, unknown>) => void
   onPickAway?: () => void
-  onGenerate?: (edge: string, vtypes: string[]) => void
+  onGenerate?: (edge: string, lane: number, vtypes: string[]) => void
 }
 
 interface StopLine {
@@ -35,6 +35,7 @@ interface Detector {
 interface Generator {
   position: [number, number]
   edge: string
+  lane: number
   vtypes: string[]
 }
 
@@ -142,11 +143,12 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
           id: 'generators',
           data: generatorsRef.current,
           getPosition: (d) => d.position,
-          getRadius: 5,
+          getRadius: 4,   // one per lane — kept small so adjacent lanes separate on zoom
           radiusUnits: 'pixels',
+          radiusMinPixels: 3,
           getFillColor: [40, 200, 90, 210],
           getLineColor: [230, 255, 235, 240],
-          lineWidthMinPixels: 1.5,
+          lineWidthMinPixels: 1,
           stroked: true,
           pickable: true,
         }),
@@ -236,7 +238,7 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
       if (pick?.object) {
         if (pick.layer?.id === 'generators') {
           const g = pick.object as Generator
-          onGenerateRef.current?.(g.edge, g.vtypes)
+          onGenerateRef.current?.(g.edge, g.lane, g.vtypes)
         } else {
           onPickRef.current?.('vehicle', (pick.object as Vehicle)[0], {})
         }
@@ -306,6 +308,7 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
         .map((f) => ({
           position: (f.geometry as GeoJSON.Point).coordinates as [number, number],
           edge: f.properties!.edge as string,
+          lane: (f.properties!.lane as number) ?? 0,
           vtypes: (f.properties!.vtypes as string[]) ?? [],
         }))
 

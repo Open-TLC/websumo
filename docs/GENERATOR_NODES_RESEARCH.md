@@ -8,6 +8,12 @@
 > masks), `sim.{scenario}.cmd.spawn`, Inject vType selector, `spawn-failed`
 > events on the log subject. Destination choice and demand display remain as
 > enhancements (TODO item 3). The naming contract below is authoritative.
+>
+> **Update (2026-07-06): per-lane markers.** Markers are now emitted **one per
+> input lane** (at each lane's upstream end), each listing only the vTypes that
+> lane allows; the spawn payload carries an optional `lane` index and the
+> adapter injects with `departLane=str(lane)` (falling back to `'free'` when
+> absent). This targets a specific lane rather than the whole approach.
 
 ## The idea
 

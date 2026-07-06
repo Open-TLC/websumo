@@ -71,12 +71,12 @@ export default function App() {
       .catch(console.error)
   }, [scenario])
 
-  const handleGenerate = useCallback((edge: string, vtypes: string[]) => {
+  const handleGenerate = useCallback((edge: string, lane: number, vtypes: string[]) => {
     // spawning needs a running adapter; ignore clicks while idle/ended
     if (simStateRef.current !== 'running' && simStateRef.current !== 'paused') return
-    // inject the selected vType if this entry accepts it, else its first accepted one
+    // inject the selected vType if this lane accepts it, else its first accepted one
     const vtype = vtypes.includes(genVtypeRef.current) ? genVtypeRef.current : vtypes[0]
-    if (vtype) sockRef.current.send('spawn', { edge, vtype })
+    if (vtype) sockRef.current.send('spawn', { edge, lane, vtype })
   }, [])
 
   const handleStart = useCallback(async () => {

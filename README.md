@@ -76,8 +76,9 @@ sim.{scenario}.cmd.speed    payload: {"v": <float 0.1–50>}
 sim.{scenario}.cmd.scale    payload: {"v": <float 0.1–5>}
 sim.{scenario}.cmd.select   payload: {"kind": "vehicle"|"tls", "id": ..., "client": ...}
                             empty payload deselects
-sim.{scenario}.cmd.spawn    payload: {"edge": "approach_...", "vtype": "car"}
-                            inject one vehicle of vtype at that entry edge
+sim.{scenario}.cmd.spawn    payload: {"edge": "approach_...", "vtype": "car",
+                                      "lane": 0 (optional lane index; else 'free')}
+                            inject one vehicle of vtype at that entry edge/lane
 ```
 
 `select` makes the adapter attach an `inspect` block (vehicle: ~24 fields —
@@ -198,7 +199,7 @@ Outputs land in `/tmp/shared/sumotest/`.
 | Stop lines | Coloured bars at lane ends (deck.gl) | TLS links; colour = live signal state |
 | Detectors | Cross-lane bars at loop positions (deck.gl) | `{scenario}.detectors.xml`; live occupancy per step |
 | Vehicles | Oriented rectangles at actual SUMO dimensions (deck.gl) | libsumo per step |
-| Generators | Green circles at entry edges that start a route (deck.gl, clickable) | `.rou.xml` routes + lane vClass masks |
+| Generators | Green circles per input lane at entries that start a route (deck.gl, clickable) | `.rou.xml` routes + per-lane vClass masks |
 
 Stop line colours: **green** (G/g), **red** (r/R), **yellow** (y/Y), grey otherwise.
 Detector colours: steel blue when clear, **bright cyan** (wider) when occupied.
@@ -239,7 +240,7 @@ adapter degrade gracefully.
 | BLK / OSM | Toggle CartoDB Light basemap |
 | LOG | Open simulation log overlay — startup warnings (amber, from SUMO stderr) + live events (collisions red, teleports orange, emergency stops yellow); unread badge while closed |
 | Click vehicle / junction | Element inspector (right side, closes LOG and vice versa): vehicles show live state incl. leader gap, next signal, time loss; traffic lights show the program table with current phase + next-switch countdown (works statically after Load too — the click target is the junction's area polygon around the intersection centre). Click empty map to deselect. Units are SUMO-native (m/s) |
-| Inject selector + click green marker | Click a green entry marker (shown after Load) to inject one vehicle of the selected vType at that approach. The selector lists the vTypes the network accepts; if the selected type isn't allowed at the clicked entry, the entry's first accepted type is used. Requires a running/paused sim. Manual vehicles get `manual_N` IDs and appear in the state stream like any other |
+| Inject selector + click green marker | Green markers appear after Load — **one per input lane** of each entry that starts a route, at that lane's upstream end. Click one to inject a vehicle of the selected vType **onto that specific lane**. Each marker offers only the vTypes its lane allows (a bike/bus-only lane with no matching vType gets no marker); if the selected type isn't allowed there, the lane's first accepted type is used. Requires a running/paused sim. Manual vehicles get `manual_N` IDs. Adjacent lane markers sit close together — zoom in to target a specific lane |
 
 Demand is defined as flows (`vehsPerHour` per route), not explicit vehicle
 lists. Longer durations repeat the same hourly rates — there are no diurnal
