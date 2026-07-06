@@ -22,11 +22,18 @@ SCENARIOS_DIR = os.environ.get('SCENARIOS_DIR', '/tmp/shared/sumotest')
 NATS_URL      = os.environ.get('NATS_URL', 'nats://localhost:4222')
 FRONTEND_DIST = pathlib.Path(__file__).parent.parent / 'frontend' / 'dist'
 ADAPTER_SCRIPT = pathlib.Path(__file__).parent / 'sumo_adapter.py'
+# The production build is served same-origin from this app, so CORS is only
+# needed for the Vite dev server. Default to the dev origins; override with a
+# comma-separated ALLOWED_ORIGINS. Never '*' — these endpoints spawn processes.
+ALLOWED_ORIGINS = os.environ.get(
+    'ALLOWED_ORIGINS',
+    'http://localhost:5173,http://127.0.0.1:5173',
+).split(',')
 
 app = FastAPI(title='WebSUMO')
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=['*'],
+    allow_origins=ALLOWED_ORIGINS,
     allow_methods=['*'],
     allow_headers=['*'],
 )
@@ -61,6 +68,22 @@ def list_scenarios() -> list[str]:
     return [pathlib.Path(c).stem for c in cfgs]
 
 
+# `scenario` is interpolated into filesystem paths, subprocess argv and NATS
+# subjects, so every entry point must constrain it. The character class blocks
+# path separators (no traversal); the allowlist ensures it maps to a real built
+# scenario. See docs/CLEANUP_FIXLIST.md #1.
+_SCENARIO_RE = re.compile(r'^[A-Za-z0-9._-]+$')
+
+
+def _is_valid_scenario(scenario: str) -> bool:
+    return bool(_SCENARIO_RE.match(scenario)) and scenario in list_scenarios()
+
+
+def _require_scenario(scenario: str) -> None:
+    if not _is_valid_scenario(scenario):
+        raise HTTPException(404, f'Unknown scenario: {scenario}')
+
+
 def _run_load_check(scenario: str) -> None:
     """Run SUMO for one step in the background to capture load-time warnings.
 
@@ -81,6 +104,7 @@ def _run_load_check(scenario: str) -> None:
 
 @api.get('/network/{scenario}')
 def get_network(scenario: str) -> dict:
+    _require_scenario(scenario)
     net_xml = pathlib.Path(SCENARIOS_DIR) / f'{scenario}.net.xml'
     if not net_xml.exists():
         raise HTTPException(404, f'No net.xml for scenario: {scenario}')
@@ -96,6 +120,7 @@ class StartRequest(BaseModel):
 @api.post('/adapter/start')
 def start_adapter(req: StartRequest) -> dict:
     global _adapter_proc
+    _require_scenario(req.scenario)
     if _adapter_proc and _adapter_proc.poll() is None:
         _adapter_proc.terminate()
         _adapter_proc.wait()
@@ -125,6 +150,7 @@ _DYNAMIC_WARNING = re.compile(
 @api.get('/adapter/log/{scenario}')
 def get_adapter_log(scenario: str, lines: int = 200, full: bool = False) -> dict:
     """Tail of the adapter's stderr log (SUMO startup warnings, live C++ output)."""
+    _require_scenario(scenario)
     path = pathlib.Path(f'/tmp/sumo_adapter_{scenario}.log')
     if not path.exists():
         return {'lines': []}
@@ -151,6 +177,9 @@ def stop_adapter() -> dict:
 @api.websocket('/ws/{scenario}')
 async def ws_endpoint(websocket: WebSocket, scenario: str) -> None:
     """Relay NATS simulation state → browser, and browser commands → NATS."""
+    if not _is_valid_scenario(scenario):
+        await websocket.close(code=1008)   # policy violation
+        return
     await websocket.accept()
     nc = await nats_client.connect(NATS_URL)
 

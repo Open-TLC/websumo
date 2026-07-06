@@ -48,6 +48,18 @@ Open **http://localhost:8775**.
 The `nats-server` binary is included in the repo root. `SCENARIOS_DIR` should
 contain `.sumocfg` and `.net.xml` files (produced by `graph2sumo`).
 
+### Access control
+
+The `scenario` name in every request is validated against the built scenarios
+(`GET /api/scenarios`) and a safe-character allowlist before it touches the
+filesystem, subprocess argv, or NATS subjects — unknown or path-like names are
+rejected with 404. The production build is served same-origin from this app, so
+CORS is only needed for the Vite dev server; `ALLOWED_ORIGINS` (comma-separated)
+defaults to the dev origins and should list your real frontend origin(s) — it is
+never `*`, because the adapter endpoints spawn processes. Since those endpoints
+start/stop SUMO, bind to `--host 127.0.0.1` unless the server must be reachable
+from other machines (and add auth if it does).
+
 ## NATS subject schema
 
 ### Implemented
