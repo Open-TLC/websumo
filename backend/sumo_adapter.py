@@ -333,6 +333,7 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
     achieved_ema = None    # smoothed actual sim-rate (×RT), measured per frame
     prev_fw = None         # wall time of the previous frame
     prev_ft = 0.0          # sim time of the previous frame
+    insp_prev = None       # (veh id, sim t, speed) of last inspect, for frame accel
     FRAME_DT = 0.095       # ~10 Hz UI, decoupled from the step rate
 
     try:
@@ -386,6 +387,19 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
                 prev_fw, prev_ft = t_start, last_t
                 limited = achieved_ema is not None and achieved_ema < 0.9 * speed_req
                 result['maxRate'] = round(achieved_ema, 1) if limited else 9999.0
+                # Acceleration consistent with the displayed frames: SUMO's
+                # getAcceleration is the instantaneous last-0.1s value, but at
+                # high speed frames are seconds apart, so it wouldn't explain the
+                # speed change the user sees (e.g. reads 0 for a car that just
+                # braked to a stop). Report Δspeed/Δframe-time instead; at 1× the
+                # frame IS one step, so this equals the instantaneous value.
+                ins = result.get('inspect')
+                if ins and ins.get('kind') == 'vehicle' and not ins.get('gone'):
+                    if insp_prev and insp_prev[0] == ins['id'] and last_t > insp_prev[1]:
+                        ins['accel'] = round((ins['speed'] - insp_prev[2]) / (last_t - insp_prev[1]), 2)
+                    insp_prev = (ins['id'], last_t, ins['speed'])
+                else:
+                    insp_prev = None
                 await nc.publish(
                     f'sim.{scenario}.state',
                     json.dumps(result).encode(),
