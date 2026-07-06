@@ -139,25 +139,47 @@ def _do_step(net: object, sel: dict | None = None) -> dict:
     return out
 
 
-def _build_route_cache() -> dict:
-    """Map each starting edge → route ids that begin there (built once at start)."""
+def _build_route_cache(net: object) -> tuple[dict, dict]:
+    """Routes indexed by starting edge, and by (starting edge, lane index).
+
+    The lane-level index only includes routes whose first turn (the route's
+    second edge) is reachable from that lane's connections. Injecting on a
+    specific lane must pick a route that lane can actually follow — otherwise
+    SUMO relocates the vehicle to a connecting lane and the requested
+    `departLane` is silently ignored (e.g. a short right-turn pocket can't feed
+    a straight-ahead route)."""
     routes_from: dict[str, list[str]] = {}
+    lane_routes: dict[tuple[str, int], list[str]] = {}
     for rid in traci.route.getIDList():
         edges = traci.route.getEdges(rid)
-        if edges:
-            routes_from.setdefault(edges[0], []).append(rid)
-    return routes_from
+        if not edges:
+            continue
+        first = edges[0]
+        routes_from.setdefault(first, []).append(rid)
+        second = edges[1] if len(edges) > 1 else None
+        try:
+            e = net.getEdge(first)
+        except KeyError:
+            continue
+        for lane in e.getLanes():
+            reachable = {c.getToLane().getEdge().getID() for c in lane.getOutgoing()}
+            if second is None or second in reachable:
+                lane_routes.setdefault((first, lane.getIndex()), []).append(rid)
+    return routes_from, lane_routes
 
 
-def _spawn(routes_from: dict, edge: str, vtype: str, veh_id: str, pick: int,
-           lane: int | None = None) -> dict:
+def _spawn(routes_from: dict, lane_routes: dict, edge: str, vtype: str,
+           veh_id: str, pick: int, lane: int | None = None) -> dict:
     """Inject one vehicle of `vtype` at entry `edge`. Runs in the libsumo thread.
 
-    `departLane` targets a specific lane index when given (lane-by-lane markers),
-    otherwise 'free'; `departPos='free'` is required — the default 'base'
-    silently queues under load (see docs/GENERATOR_NODES_RESEARCH.md).
+    When `lane` is given, the route is chosen from those that lane can follow so
+    `departLane=<index>` is honoured; `departPos='free'` is required — the
+    default 'base' silently queues under load (see GENERATOR_NODES_RESEARCH.md).
     """
-    route_ids = routes_from.get(edge)
+    if lane is not None:
+        route_ids = lane_routes.get((edge, lane)) or routes_from.get(edge)
+    else:
+        route_ids = routes_from.get(edge)
     if not route_ids:
         return {'ok': False, 'error': f'no route from edge {edge}'}
     if vtype not in traci.vehicletype.getIDList():
@@ -211,8 +233,9 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
     # inspect block; a multi-user setup needs per-client selections (see
     # docs/ELEMENT_INSPECTION_RESEARCH.md). 'client' field reserved for that.
     selected: dict | None = None
-    route_cache: dict = {}   # first-edge → [route_ids]; filled after traci.start
-    spawn_n = 0              # unique manual_{n} vehicle ids
+    route_cache: dict = {}       # first-edge → [route_ids]; filled after start
+    lane_route_cache: dict = {}  # (first-edge, lane index) → [route_ids]
+    spawn_n = 0                  # unique manual_{n} vehicle ids
     last_t = 0.0             # last step time (thread-safe: no libsumo call in callbacks)
     current_scale = max(0.0, min(init_scale, 5.0))   # 0 => don't auto-end on empty
 
@@ -255,7 +278,8 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
                 spawn_n += 1
                 veh_id = f'manual_{spawn_n}'
                 result = await loop.run_in_executor(
-                    executor, _spawn, route_cache, edge, vtype, veh_id, spawn_n, lane)
+                    executor, _spawn, route_cache, lane_route_cache,
+                    edge, vtype, veh_id, spawn_n, lane)
                 # injected vehicles appear in the state stream on their own; only
                 # surface failures, on the log subject so the LOG panel shows them
                 if not result['ok']:
@@ -282,7 +306,9 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
             '--route-files', _stretch_flows(scenario, end_time),
         ]
     traci.start(sumo_cmd)
-    route_cache.update(_build_route_cache())
+    rf, lr = _build_route_cache(net)
+    route_cache.update(rf)
+    lane_route_cache.update(lr)
     # apply the pre-Start traffic scale before the first step, so scale=0 means
     # truly zero flow insertion from t=0 (no vehicles slip in during startup)
     await loop.run_in_executor(executor, traci.simulation.setScale, current_scale)
