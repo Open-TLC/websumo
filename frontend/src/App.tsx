@@ -13,7 +13,8 @@ export default function App() {
   const [networkGeoJSON, setNetworkGeoJSON] = useState<GeoJSON.FeatureCollection | null>(null)
   const [simState, setSimState] = useState<SimState>('idle')
   const [simTime, setSimTime] = useState(0)
-  const [speed, setSpeed] = useState(1.0)
+  const [speed, setSpeed] = useState(20)          // ×-real-time (RT-aligned)
+  const [maxRate, setMaxRate] = useState<number | null>(null)  // machine ceiling ×RT
   const [trafficScale, setTrafficScale] = useState(1.0)
   const [duration, setDuration] = useState(3600)
   const [basemap, setBasemap] = useState(false)
@@ -61,7 +62,7 @@ export default function App() {
       .then((r) => r.json())
       .then((gj: GeoJSON.FeatureCollection) => {
         setNetworkGeoJSON(gj)
-        setSpeed(1.0)
+        setSpeed(20)
         setTrafficScale(1.0)
         // vType options for the generator selector = union of all generator markers
         const vts = Array.from(new Set(
@@ -100,8 +101,9 @@ export default function App() {
       }
 
       const sock = sockRef.current
-      sock.onStep = (vehicles, tls, detectors, t) => {
+      sock.onStep = (vehicles, tls, detectors, t, mr) => {
         setSimTime(t)
+        if (mr != null) setMaxRate(mr)
         mapRef.current?.updateStep(vehicles, tls, detectors, t)
         if (resendSelectRef.current) {
           resendSelectRef.current = false
@@ -122,6 +124,7 @@ export default function App() {
 
       setSimState('running')
       setSimTime(0)
+      setMaxRate(null)
       setLogEntries([])
       setLogUnread(0)
       setStartupLines([])
@@ -168,8 +171,9 @@ export default function App() {
     await fetch('/api/adapter/stop', { method: 'POST' }).catch(() => {})
     setSimState('idle')
     setSimTime(0)
-    setSpeed(1.0)
+    setSpeed(20)
     setTrafficScale(1.0)
+    setMaxRate(null)
     mapRef.current?.updateStep([], {}, {}, 0)
     clearSelection()
   }, [clearSelection])
@@ -179,8 +183,9 @@ export default function App() {
     await fetch('/api/adapter/stop', { method: 'POST' }).catch(() => {})
     setSimState('idle')
     setSimTime(0)
-    setSpeed(1.0)
+    setSpeed(20)
     setTrafficScale(1.0)
+    setMaxRate(null)
     mapRef.current?.updateStep([], {}, {}, 0)
     clearSelection()
   }, [clearSelection])
@@ -259,6 +264,7 @@ export default function App() {
         simState={simState}
         simTime={simTime}
         speed={speed}
+        maxRate={maxRate}
         trafficScale={trafficScale}
         duration={duration}
         basemap={basemap}

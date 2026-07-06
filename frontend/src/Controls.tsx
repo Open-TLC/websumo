@@ -4,6 +4,7 @@ interface Props {
   simState: 'idle' | 'running' | 'paused' | 'ended'
   simTime: number
   speed: number
+  maxRate: number | null   // machine's achievable ×RT ceiling, or null when idle
   trafficScale: number
   duration: number
   basemap: boolean
@@ -43,6 +44,15 @@ const btn = (label: string, onClick: () => void, disabled = false, accent = fals
   </button>
 )
 
+// Speed slider is logarithmic over ×-real-time: 1× (real time) up to a high
+// aspirational max — the machine's true ceiling is enforced by the red clamp.
+const SPD_MIN = 1
+const SPD_MAX = 500
+const posToSpeed = (p: number) => SPD_MIN * Math.pow(SPD_MAX / SPD_MIN, p / 1000)
+const speedToPos = (s: number) =>
+  1000 * Math.log(Math.max(SPD_MIN, s) / SPD_MIN) / Math.log(SPD_MAX / SPD_MIN)
+const fmtSpeed = (s: number) => (s < 10 ? s.toFixed(1) : Math.round(s).toString())
+
 const DURATIONS = [
   { label: '1 h',  value: 3600 },
   { label: '4 h',  value: 14400 },
@@ -51,7 +61,7 @@ const DURATIONS = [
 ]
 
 export function Controls({
-  scenarios, scenario, simState, simTime, speed, trafficScale, duration, basemap,
+  scenarios, scenario, simState, simTime, speed, maxRate, trafficScale, duration, basemap,
   logUnread, genVtypes, genVtype, onGenVtypeChange, onToggleLog,
   onScenarioChange, onDurationChange, onLoad, onStart, onPause, onResume, onStop, onReset,
   onSpeedChange, onTrafficScaleChange, onBasemapToggle,
@@ -161,19 +171,30 @@ export function Controls({
         {!idle && btn('↺ Reset', onReset)}
       </div>
 
-      {/* Speed */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ fontSize: 11, color: '#778', width: 52 }}>Speed</span>
-        <span style={{ fontSize: 12, color: '#99a', width: 34, textAlign: 'right' }}>
-          {speed.toFixed(1)}×
-        </span>
-        <input
-          type="range" min={0.1} max={50} step={0.1}
-          value={speed}
-          onChange={(e) => onSpeedChange(parseFloat(e.target.value))}
-          style={{ flex: 1 }}
-        />
-      </div>
+      {/* Speed — ×-real-time, logarithmic; red + clamped when the machine
+          can't sustain the requested rate */}
+      {(() => {
+        const limited = maxRate != null && active && speed > maxRate * 1.1
+        const shown = limited ? maxRate! : speed
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 11, color: '#778', width: 52 }}>Speed</span>
+            <span style={{
+              fontSize: 12, width: 46, textAlign: 'right',
+              color: limited ? '#ff7a7a' : '#99a',
+            }}>
+              {fmtSpeed(shown)}×
+            </span>
+            <input
+              type="range" min={0} max={1000} step={1}
+              value={speedToPos(shown)}
+              onChange={(e) => onSpeedChange(posToSpeed(parseInt(e.target.value, 10)))}
+              style={{ flex: 1, accentColor: limited ? '#e05050' : undefined }}
+              title={limited ? `machine ceiling ~${fmtSpeed(maxRate!)}× real-time` : `${fmtSpeed(shown)}× real time`}
+            />
+          </div>
+        )
+      })()}
 
       {/* Traffic scale */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

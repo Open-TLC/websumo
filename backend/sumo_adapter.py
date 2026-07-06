@@ -5,6 +5,7 @@ import asyncio
 import json
 import os
 import signal
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import libsumo as traci
@@ -226,8 +227,10 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
     net = sumolib.net.readNet(net_xml, withInternal=False)
 
     paused     = False
-    # initial playback rate from the pre-Start slider (applied from t=0)
-    step_delay = 0.05 / max(0.1, min(init_speed, 50.0))
+    # playback is real-time-aligned: speed is a multiple of real time, so the
+    # wall period per step is deltaT/speed. speed_req is the requested multiple;
+    # the loop reports the achievable ceiling (maxRate) when it can't keep up.
+    speed_req  = max(0.1, min(init_speed, 1000.0))
     pending: dict = {}  # buffered commands applied before next step
     # single global selection per adapter — all subscribers see the same
     # inspect block; a multi-user setup needs per-client selections (see
@@ -243,7 +246,7 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='libsumo')
 
     async def on_cmd(msg: nats.aio.msg.Msg) -> None:
-        nonlocal paused, step_delay, selected, spawn_n, current_scale
+        nonlocal paused, speed_req, selected, spawn_n, current_scale
         cmd = msg.subject.rsplit('.', 1)[-1]
         data = json.loads(msg.data) if msg.data else {}
         if cmd == 'pause':
@@ -253,8 +256,7 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
         elif cmd == 'stop':
             pending['stop'] = True
         elif cmd == 'speed':
-            v = max(0.1, min(float(data.get('v', 1.0)), 50.0))
-            step_delay = 0.05 / v
+            speed_req = max(0.1, min(float(data.get('v', 1.0)), 1000.0))
         elif cmd == 'scale':
             # 0 = no flow insertion (only manual/generator vehicles)
             current_scale = max(0.0, min(float(data.get('v', 1.0)), 5.0))
@@ -315,6 +317,12 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
     # configured end time (from --end or the sumocfg); bounds a scale=0 run that
     # would otherwise never see an empty-network end
     end_bound = await loop.run_in_executor(executor, traci.simulation.getEndTime)
+    delta_t = await loop.run_in_executor(executor, traci.simulation.getDeltaT)  # sim-s/step
+    # smoothed wall period between iteration starts — includes ALL overhead
+    # (step, serialize, NATS flush, loop), so delta_t/period is the true rate
+    period_ema = None
+    prev_start = None
+    was_flat = False   # did the previous iteration run flat out (no sleep)?
 
     try:
         while True:
@@ -322,11 +330,17 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
                 break
             if paused:
                 await asyncio.sleep(0.05)
+                prev_start = None   # don't count the paused gap as work
                 continue
             if 'scale' in pending:
                 scale = pending.pop('scale')
                 await loop.run_in_executor(executor, traci.simulation.setScale, scale)
 
+            t_start = time.monotonic()
+            if prev_start is not None:
+                period = t_start - prev_start
+                period_ema = period if period_ema is None else 0.85 * period_ema + 0.15 * period
+            prev_start = t_start
             result = await loop.run_in_executor(executor, _do_step, net, selected)
             last_t = result['t']
             empty = result.pop('_empty')
@@ -346,11 +360,22 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
                     f'sim.{scenario}.log',
                     json.dumps({'type': 'log', 't': result['t'], 'events': events}).encode(),
                 )
+            # Report a real ceiling only while flat out (previous iteration
+            # didn't sleep); otherwise a high sentinel = "keeping up, not
+            # limited". This makes the UI's clamp unambiguous — no false red
+            # from sleep jitter when we're actually hitting the requested rate.
+            result['maxRate'] = (round(delta_t / period_ema, 1)
+                                 if was_flat and period_ema else 9999.0)
             await nc.publish(
                 f'sim.{scenario}.state',
                 json.dumps(result).encode(),
             )
-            await asyncio.sleep(step_delay)
+            # pace to real-time × speed_req; if the work already overran the
+            # target period we run flat out (no sleep) — that's the ceiling
+            sleep = delta_t / speed_req - (time.monotonic() - t_start)
+            was_flat = sleep <= 0.002   # ~no sleep left => throughput-limited
+            if sleep > 0:
+                await asyncio.sleep(sleep)
     finally:
         try:
             traci.close()

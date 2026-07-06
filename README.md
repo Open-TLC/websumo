@@ -72,7 +72,7 @@ sim.{scenario}.log       ← adapter publishes exceptional events (sparse — on
 sim.{scenario}.cmd.pause
 sim.{scenario}.cmd.resume
 sim.{scenario}.cmd.stop
-sim.{scenario}.cmd.speed    payload: {"v": <float 0.1–50>}
+sim.{scenario}.cmd.speed    payload: {"v": <float>}  ×-real-time (1 = real time)
 sim.{scenario}.cmd.scale    payload: {"v": <float 0–5>}  (0 = no flow insertion)
 sim.{scenario}.cmd.select   payload: {"kind": "vehicle"|"tls", "id": ..., "client": ...}
                             empty payload deselects
@@ -99,11 +99,15 @@ State message:
   "t": 123.4,
   "vehicles": [["id", lon, lat, angle, length, width, "vclass"], ...],
   "tls": {"<junction_id>": "GGrrGGrr"},
-  "detectors": {"<det_id>": true}
+  "detectors": {"<det_id>": true},
+  "maxRate": 303.0
 }
 ```
 `detectors` maps each induction loop ID to its occupancy (vehicle present or
-passed during the last step).
+passed during the last step). `maxRate` is the sustained playback rate in
+×-real-time while the loop is throughput-limited (running flat out), or a high
+sentinel (`9999`) when it is keeping up with the requested speed; the UI uses it
+to clamp and redden the speed slider at the machine's ceiling.
 
 Log message (only published on steps where something exceptional happened):
 ```json
@@ -235,7 +239,7 @@ adapter degrade gracefully.
 | ⏸ / ▶ | Pause / resume simulation |
 | ■ Stop | Stop simulation, clear vehicles |
 | ↺ Reset | Force-stop adapter, return to idle |
-| Speed slider | Wall-clock rate (0.1× – 50×). Tunable **before** Start; applied from t=0 |
+| Speed slider | **×-real-time** playback, **logarithmic** (1× = real time … up to a high max; default 20×). If the machine can't sustain the requested rate the slider **clamps to the achievable ceiling and turns red**. Tunable **before** Start; applied from t=0 |
 | Traffic slider | Vehicle insertion scale (**0× – 5×**) via `simulation.setScale`. **0 = no flow insertion** — an empty sim you populate with the generators (it stays running until the duration/Stop rather than ending on empty). Tunable before Start; applied from t=0 |
 | BLK / OSM | Toggle CartoDB Light basemap |
 | LOG | Open simulation log overlay — startup warnings (amber, from SUMO stderr) + live events (collisions red, teleports orange, emergency stops yellow); unread badge while closed |
@@ -245,7 +249,9 @@ adapter degrade gracefully.
 Demand is defined as flows (`vehsPerHour` per route), not explicit vehicle
 lists. Longer durations repeat the same hourly rates — there are no diurnal
 peaks unless the upstream demand generation (graph2sumo) adds time-windowed
-flows. At 50× a full 24 h simulation takes ~30 min wall time.
+flows. Speed is ×-real-time: at the default 20× a 1 h simulation takes ~3 min
+wall; the practical ceiling is whatever the host can render (a few hundred × on
+a typical machine, shown by the red slider clamp).
 
 ## Integration with Open Controller
 

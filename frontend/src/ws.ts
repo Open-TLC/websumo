@@ -7,7 +7,7 @@ export type InspectBlock = Record<string, unknown> & { kind: string; id: string;
 
 export class SimSocket {
   private ws: WebSocket | null = null
-  onStep: ((vehicles: Vehicle[], tls: Record<string, string>, detectors: Record<string, boolean>, t: number) => void) | null = null
+  onStep: ((vehicles: Vehicle[], tls: Record<string, string>, detectors: Record<string, boolean>, t: number, maxRate?: number) => void) | null = null
   onEnd: (() => void) | null = null
   onLog: ((t: number, events: LogEvent[]) => void) | null = null
   onInspect: ((block: InspectBlock) => void) | null = null
@@ -24,7 +24,7 @@ export class SimSocket {
       } else if (d.type === 'inspect') {
         this.onInspect?.(d.inspect)
       } else {
-        this.onStep?.(d.vehicles ?? [], d.tls ?? {}, d.detectors ?? {}, d.t ?? 0)
+        this.onStep?.(d.vehicles ?? [], d.tls ?? {}, d.detectors ?? {}, d.t ?? 0, d.maxRate)
         if (d.inspect) this.onInspect?.(d.inspect)
       }
     }
