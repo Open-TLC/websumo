@@ -1,16 +1,27 @@
 # WebSUMO + Open Controller — Integration Roadmap
 
-*Status: planning / pre-integration. Last updated: 2026-07-02.*
+*Status: planning / pre-integration. Last updated: 2026-07-03.*
 
 ---
 
 ## Current state
 
-WebSUMO is a standalone SUMO viewer. It owns the TraCI connection, drives
-`simulationStep()`, and streams vehicle positions and TLS states to the browser
-over WebSocket. The Open Controller (OC) is a separate project with its own
-TraCI connection and simulation loop. The two cannot currently run against the
-same SUMO process without conflict.
+WebSUMO runs SUMO **in-process via libsumo** inside a standalone adapter
+(`backend/sumo_adapter.py`), which drives `simulationStep()` and publishes
+`{t, vehicles, tls, detectors}` to NATS (`sim.{scenario}.state`, plus `.end`
+and `.log`); a FastAPI WebSocket relay forwards that to the browser and
+forwards browser commands (`sim.{scenario}.cmd.*`) back. So **Option 1 below
+(a NATS publishing layer) is already done** — WebSUMO is a NATS
+publisher/subscriber, not a TraCI socket owner. The Open Controller (OC) is a
+separate NATS-native project. The remaining integration work is the OC-facing
+subject bridge (detector republish + signal-command intake — TODO item 2), not
+the transport, which is why the option analysis below is now about *who owns
+the SUMO process*, with the NATS substrate taken as given.
+
+> The subsections below predate the migration and are kept for the option
+> analysis (who should own the simulation). Where they say `session.py`, read
+> `sumo_adapter.py`; where they say `sim.state.<scenario>` / `sim.cmd.<scenario>`,
+> the shipped subjects are `sim.{scenario}.state` / `sim.{scenario}.cmd.*`.
 
 ---
 
@@ -43,27 +54,21 @@ simulation scenario does not require OC signal control.
 
 ---
 
-### Option 1 — NATS publishing layer in WebSUMO *(next clear step)*
+### Option 1 — NATS publishing layer in WebSUMO ✅ *(DONE)*
 
-Add opt-in NATS publishing to WebSUMO's existing step loop. If a NATS broker
-is reachable (`NATS_URL` env var), WebSUMO publishes simulation state each
-step. If not, behaviour is identical to today.
+The adapter publishes `{t, vehicles, tls, detectors}` to `sim.{scenario}.state`
+each step and subscribes to `sim.{scenario}.cmd.*` for commands. `nats-py` is a
+dependency; the browser talks to the adapter only through the FastAPI relay.
 
-**What changes:**
-- `session.py`: publish `{t, vehicles, tls, detectors}` to `sim.state.<scenario>`
-- `session.py`: subscribe to `sim.cmd.<scenario>` for signal overrides from OC
-- `requirements.txt`: add `nats-py`
-- No changes to frontend, WebSocket protocol, or TraCI logic
-
-**What this enables:**
-- OC's control engine can subscribe to detector data and publish signal
-  commands without touching WebSUMO's internals
+**What this enabled:**
+- OC's control engine can subscribe to state and publish commands without
+  touching WebSUMO's internals
 - Foundation for all further integration options
-- Low risk: NATS is fully optional, nothing breaks without it
 
 **What it does NOT solve:**
-- Integrated mode (OC as TraCI master) — WebSUMO still cannot attach to an
-  OC-owned SUMO process
+- Integrated mode (OC as the simulation master) — WebSUMO still cannot attach
+  to a SUMO/libsumo instance owned by another process; that is the subject of
+  Options 2–4 below.
 
 ---
 
@@ -156,11 +161,12 @@ decision.
 
 ## Lightweight interim option
 
-If OC signal control is needed in WebSUMO *before* NATS is in place, OC's
-`PhaseRingController` can be imported directly as a Python library inside
-WebSUMO's `session.py`. WebSUMO remains TraCI master; OC's control engine is
-called as a function each step with detector readings, and its signal output is
-applied via TraCI. No NATS, no new processes.
+NATS is already in place, so this is now moot as a *transport* shortcut. If a
+purely in-process prototype is ever wanted, OC's `PhaseRingController` could be
+imported directly inside `sumo_adapter.py` and called each step with detector
+readings, its signal output applied via libsumo — no NATS hop. This couples OC
+into the adapter's process and does not scale to distributed or
+multi-intersection use; treat it as a prototype, not a production architecture.
 
 This is a quick path to OC-controlled signals in the browser, but it couples
 OC into WebSUMO's process and does not scale to distributed or multi-intersection
@@ -170,13 +176,13 @@ use cases. Treat it as a prototype, not a production architecture.
 
 ## Recommended sequence
 
-| Step | Action | Prerequisite |
-|------|--------|--------------|
-| 1 | Add NATS publishing to WebSUMO (Option 1) | None — do when ready |
-| 2 | Define and freeze NATS topic schema and command protocol | Option 1 done |
-| 2b | *(If needed before step 2)* Import OC control engine as in-process library | Agreement that it's a prototype |
-| 3 | Align with OC team on simengine ownership (Option 2 vs 3 vs 4) | OC roadmap discussion |
-| 4 | Implement agreed integration pattern | Step 2 + step 3 |
+| Step | Action | Status |
+|------|--------|--------|
+| 1 | Add NATS publishing to WebSUMO (Option 1) | ✅ done |
+| 2 | Define and freeze the NATS subject schema and command protocol | in progress — `sim.{scenario}.*` shipped; OC-facing `detector.control.*` / `group.control.*` still to confirm against OC (TODO item 2) |
+| 2b | *(Optional prototype)* Import OC control engine as an in-process library | only if a NATS-free prototype is wanted |
+| 3 | Align with OC team on simulation-master ownership (Option 2 vs 3 vs 4) | pending OC roadmap discussion |
+| 4 | Implement agreed integration pattern | after steps 2 + 3 |
 
 The guiding principle: **interfaces first, integration second.** A stable NATS
 topic schema agreed between WebSUMO and OC is worth more than any amount of

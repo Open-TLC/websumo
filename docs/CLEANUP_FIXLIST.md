@@ -29,18 +29,19 @@ quick correctness/security wins.
 
 ## Fix list (ranked; do #1 first)
 
-**Progress:** Batch A (#1, #8) done 2026-07-03 — commit adds `_require_scenario`
-allowlist validation on all entry points and restricts CORS to `ALLOWED_ORIGINS`.
+**Progress:**
+- Batch A (#1, #8) done 2026-07-03 — `_require_scenario` allowlist validation on all entry points; CORS restricted to `ALLOWED_ORIGINS`.
+- Batch B (#2, #5, #7) done 2026-07-03 — OC subject naming reconciled (`detector.control.*` / `group.control.*`, verify-against-OC caveat added), false "adapter already publishes OC subjects" claim removed; IMPLEMENTATION_PLAN marked HISTORICAL + dead link removed, INTEGRATION_ROADMAP updated to libsumo+NATS (Option 1 = done, `session.py`→`sumo_adapter.py`); dead `:9222` WebSocket config + README mentions removed.
 
 | # | Sev / Effort | Item |
 |---|---|---|
 | 1 | High / M | ✅ Validate `scenario` against an allowlist before any fs/subprocess/NATS use |
-| 2 | Med / S | Fix README's false "adapter already publishes OC subjects" claim; pick one OC TLS subject name |
+| 2 | Med / S | ✅ Fix README's false "adapter already publishes OC subjects" claim; pick one OC TLS subject name |
 | 3 | Med / S | Replace hardcoded `python3.14` `sys.path` (×3) with a derived path in one helper |
 | 4 | Med / M | Named decoder + arity assertion for the 7-field vehicle tuple (Python/TS/README) |
-| 5 | High / M | Mark IMPLEMENTATION_PLAN + INTEGRATION_ROADMAP historical / update to libsumo+NATS |
+| 5 | High / M | ✅ Mark IMPLEMENTATION_PLAN + INTEGRATION_ROADMAP historical / update to libsumo+NATS |
 | 6 | Med / M | Harden WS relay + per-client NATS lifecycle (teardown, connect-failure, no bare-except) |
-| 7 | Low / S | Remove unused NATS WebSocket `:9222` config block + README mentions |
+| 7 | Low / S | ✅ Remove unused NATS WebSocket `:9222` config block + README mentions |
 | 8 | Med / S | ✅ Restrict CORS from `allow_origins=['*']`; bind process-control API to localhost |
 | 9 | Med / L | Serialize adapter lifecycle; make orphan-kill scenario-specific (not `pgrep`-by-name) |
 | 10 | Low / S | Untrack the 16 MB `nats-server` binary; document how to fetch it |

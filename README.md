@@ -33,7 +33,7 @@ cd backend
 pip install -r requirements.txt   # fastapi, uvicorn, nats-py, libsumo
 
 # 2. Install and start NATS broker
-./nats-server -c nats-server.conf   # TCP :4222 · WS :9222
+./nats-server -c nats-server.conf   # TCP :4222 (backend ↔ NATS)
 
 # 3. Build the frontend
 cd frontend && npm install && npm run build
@@ -138,13 +138,20 @@ remaining increment for a drop-in replacement of OC's
 `simengine_integrated.py`:
 
 ```
-detector.control.{det_id}   ← republish detector occupancy in OC's format
-                              payload: {"id": ..., "loop_on": bool, "tstamp": ISO8601}
-                              (OC control engine already subscribes to these)
-sim.{scenario}.cmd.tls      ← apply signal state string via
+detector.control.{det_id}   ← adapter republishes detector occupancy in OC's
+                              format: {"id": ..., "loop_on": bool, "tstamp": ISO8601}
+                              (OC's control engine subscribes to these)
+group.control.{group_id}    ← OC publishes its computed signal states here;
+                              adapter subscribes and applies them via
                               trafficlight.setRedYellowGreenState
-                              (OC publishes its computed states here)
 ```
+
+**Not yet implemented, and the names above are provisional.** Unlike our
+`sim.{scenario}.*` subjects, OC's detector/group subjects are *flat* (not
+scenario-scoped), so a single broker serves one scenario at a time — running
+two scenarios against one OC would cross-talk. Confirm the exact subject
+spellings and payload shapes against OC's real code before building; `group.*`
+vs the older `group.status.*` naming in particular is unverified here.
 
 A generic request-reply layer (`sumo.{sim}.get/set.{domain}.{var}`) was
 researched (see `docs/NATS_TRACI_REPLACEMENT_RESEARCH.md`) but is deliberately
@@ -238,5 +245,9 @@ flows. At 50× a full 24 h simulation takes ~30 min wall time.
 ## Integration with Open Controller
 
 See `docs/INTEGRATION_ROADMAP.md` and `docs/NATS_TRACI_REPLACEMENT_RESEARCH.md`.
-OC's control engine is already NATS-native; the adapter publishes on the same
-subjects OC expects (`detector.control.*`, `group.status.*`).
+OC's control engine is already NATS-native. The adapter does **not** yet publish
+or consume OC subjects — the detector republish and the signal-command path are
+the remaining work (TODO item 2). The planned contract is under
+[Planned](#planned-for-open-controller-integration) above; its exact subject
+names and payloads must be confirmed against OC's `simengine_integrated.py` /
+`clockwork.py` before implementing.

@@ -26,6 +26,11 @@ command path are missing.
   `{"id", "loop_on", "tstamp"}` (~10 lines)
 - Subscribe to OC's signal commands (`group.control.*`), apply via
   `trafficlight.setRedYellowGreenState` before next step
+- **First: confirm subject names + payloads against OC's real
+  `simengine_integrated.py` / `clockwork.py`** — `group.control` vs
+  `group.status` is unverified, and OC's subjects are flat (not
+  `sim.{scenario}.*`-scoped), so one broker = one scenario. Decide whether to
+  adopt OC's flat namespace or bridge to scenario-scoped subjects.
 - Validate detector IDs in `oc_controller.json` against `{scenario}.detectors.xml`
   at startup; log mismatches
 - End-to-end test: OC control engine driving signals on fi.helsinki.269,

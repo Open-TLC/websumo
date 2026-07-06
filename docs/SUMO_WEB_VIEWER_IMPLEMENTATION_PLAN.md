@@ -1,10 +1,18 @@
 # SUMO Web Viewer — Implementation Plan
 
-**Status**: Design / pre-implementation  
+> **HISTORICAL — superseded.** This is the original pre-implementation design.
+> The system it plans has shipped, and several decisions here were changed
+> during implementation: the transport is **libsumo + NATS** (not TraCI), the
+> viewer renders oriented vehicle rectangles (not `ScatterplotLayer` dots), and
+> TLS/vehicle-type/detector display — listed as out-of-scope below — are all
+> implemented. For the actual architecture see `../README.md`. Kept for design
+> rationale only; do not treat as current.
+
+**Status**: Historical (was: Design / pre-implementation)  
 **Date**: July 2026  
-**Predecessor documents**:
-- [`SUMO_WEB_VISUALIZATION_RESEARCH.md`](./SUMO_WEB_VISUALIZATION_RESEARCH.md) — first-pass research on existing tools and communication protocols
-- Deep-dive research session (July 2026, not separately persisted) — evaluated sumo-web3d, SimWrapper, CesiumJS/CZML, SUMO GitHub issue history, and licensing
+**Predecessor**: a deep-dive research session (July 2026, not separately
+persisted) evaluated sumo-web3d, SimWrapper, CesiumJS/CZML, SUMO GitHub issue
+history, and licensing.
 
 ---
 
