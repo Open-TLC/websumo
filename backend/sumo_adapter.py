@@ -110,8 +110,14 @@ def _do_step(net: object, sel: dict | None = None, full: bool = True) -> dict:
     empty = traci.simulation.getMinExpectedNumber() == 0
     events = _collect_events()
     t = round(traci.simulation.getTime(), 1)
+    # detector occupancy is sampled EVERY step (not just on UI frames) so a
+    # brief crossing between frames isn't missed at high playback speed; the
+    # caller unions det_on across a frame's steps (see the run loop).
+    det_on = [d for d in traci.inductionloop.getIDList()
+              if traci.inductionloop.getLastStepVehicleNumber(d) > 0
+              or traci.inductionloop.getLastStepOccupancy(d) > 0]
     if not full:
-        return {'t': t, 'events': events, '_empty': empty}
+        return {'t': t, 'events': events, '_empty': empty, 'det_on': det_on}
     vehicles = []
     for vid in traci.vehicle.getIDList():
         x, y = traci.vehicle.getPosition(vid)
@@ -129,18 +135,13 @@ def _do_step(net: object, sel: dict | None = None, full: bool = True) -> dict:
         tls_id: traci.trafficlight.getRedYellowGreenState(tls_id)
         for tls_id in traci.trafficlight.getIDList()
     }
-    detectors = {
-        det_id: traci.inductionloop.getLastStepVehicleNumber(det_id) > 0
-                or traci.inductionloop.getLastStepOccupancy(det_id) > 0
-        for det_id in traci.inductionloop.getIDList()
-    }
     out = {
         't': t,
         'vehicles': vehicles,
         'tls': tls,
-        'detectors': detectors,
         'events': events,
         '_empty': empty,
+        'det_on': det_on,   # the run loop turns the frame's union into `detectors`
     }
     if sel:
         out['inspect'] = _inspect_block(sel)
@@ -326,6 +327,8 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
     # would otherwise never see an empty-network end
     end_bound = await loop.run_in_executor(executor, traci.simulation.getEndTime)
     delta_t = await loop.run_in_executor(executor, traci.simulation.getDeltaT)  # sim-s/step
+    all_dets = list(await loop.run_in_executor(executor, traci.inductionloop.getIDList))
+    frame_dets: set = set()   # detectors active on any step since the last frame
     # smoothed wall period between iteration starts — includes ALL overhead
     # (step, serialize, NATS flush, loop), so delta_t/period is the true rate
     last_frame = 0.0       # wall time of the last UI snapshot published
@@ -358,6 +361,7 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
             result = await loop.run_in_executor(executor, _do_step, net, selected, full)
             last_t = result['t']
             empty = result.pop('_empty')
+            frame_dets.update(result.pop('det_on'))   # union across the frame's steps
             # End on: reaching the configured end time, OR an empty network — but
             # NOT when scale is 0 (an intentionally empty sim awaiting injection).
             if (end_bound > 0 and last_t >= end_bound) or (empty and current_scale > 0):
@@ -375,6 +379,9 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
 
             if full:
                 last_frame = t_start
+                # a detector shown "on" if it was active on ANY step this frame
+                result['detectors'] = {d: d in frame_dets for d in all_dets}
+                frame_dets = set()
                 # a vanished element (arrived vehicle) reports gone once
                 if result.get('inspect', {}).get('gone'):
                     selected = None

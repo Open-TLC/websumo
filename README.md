@@ -103,8 +103,12 @@ State message:
   "maxRate": 303.0
 }
 ```
-`detectors` maps each induction loop ID to its occupancy (vehicle present or
-passed during the last step). `maxRate` is the sustained playback rate in
+`detectors` maps each induction loop ID to whether it was occupied on **any
+step of the displayed frame** — occupancy is sampled every 0.1 s step and
+unioned per frame, so brief crossings aren't missed at high playback speed
+(sampling only the frame's last step misses ~95% of activity at 20×). Note:
+this is a *viewer* aggregation; OC integration will need the per-step detector
+stream on its own subject, not this frame-unioned value. `maxRate` is the sustained playback rate in
 ×-real-time while the loop is throughput-limited (running flat out), or a high
 sentinel (`9999`) when it is keeping up with the requested speed; the UI uses it
 to clamp and redden the speed slider at the machine's ceiling.
