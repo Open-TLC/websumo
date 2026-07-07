@@ -16,7 +16,7 @@ export default function App() {
   const [speed, setSpeed] = useState(1)          // ×-real-time (RT-aligned)
   const [maxRate, setMaxRate] = useState<number | null>(null)  // machine ceiling ×RT
   const [trafficScale, setTrafficScale] = useState(1.0)
-  const [duration, setDuration] = useState(3600)
+  const [duration, setDuration] = useState(28800)   // default 8 h
   const [basemap, setBasemap] = useState(false)
   const [logOpen, setLogOpen] = useState(false)
   const [logUnread, setLogUnread] = useState(0)
