@@ -13,7 +13,7 @@ export default function App() {
   const [networkGeoJSON, setNetworkGeoJSON] = useState<GeoJSON.FeatureCollection | null>(null)
   const [simState, setSimState] = useState<SimState>('idle')
   const [simTime, setSimTime] = useState(0)
-  const [speed, setSpeed] = useState(20)          // ×-real-time (RT-aligned)
+  const [speed, setSpeed] = useState(1)          // ×-real-time (RT-aligned)
   const [maxRate, setMaxRate] = useState<number | null>(null)  // machine ceiling ×RT
   const [trafficScale, setTrafficScale] = useState(1.0)
   const [duration, setDuration] = useState(3600)
@@ -51,7 +51,8 @@ export default function App() {
       .then((r) => r.json())
       .then((list: string[]) => {
         setScenarios(list)
-        if (list.length > 0) setScenario(list[0])
+        // default to fi.helsinki.269 when present, else the first scenario
+        if (list.length > 0) setScenario(list.find((s) => s.includes('269')) ?? list[0])
       })
       .catch(console.error)
   }, [])
@@ -62,7 +63,7 @@ export default function App() {
       .then((r) => r.json())
       .then((gj: GeoJSON.FeatureCollection) => {
         setNetworkGeoJSON(gj)
-        setSpeed(20)
+        setSpeed(1)
         setTrafficScale(1.0)
         // vType options for the generator selector = union of all generator markers
         const vts = Array.from(new Set(
@@ -171,7 +172,7 @@ export default function App() {
     await fetch('/api/adapter/stop', { method: 'POST' }).catch(() => {})
     setSimState('idle')
     setSimTime(0)
-    setSpeed(20)
+    setSpeed(1)
     setTrafficScale(1.0)
     setMaxRate(null)
     mapRef.current?.updateStep([], {}, {}, 0)
@@ -183,7 +184,7 @@ export default function App() {
     await fetch('/api/adapter/stop', { method: 'POST' }).catch(() => {})
     setSimState('idle')
     setSimTime(0)
-    setSpeed(20)
+    setSpeed(1)
     setTrafficScale(1.0)
     setMaxRate(null)
     mapRef.current?.updateStep([], {}, {}, 0)
