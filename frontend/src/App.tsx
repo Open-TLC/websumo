@@ -26,7 +26,6 @@ export default function App() {
   const [inspectLive, setInspectLive] = useState<InspectBlock | null>(null)
   const [genVtypes, setGenVtypes] = useState<string[]>([])   // vTypes offered by the loaded network
   const [genVtype, setGenVtype] = useState('')               // currently selected injection vType
-  const [autoLoad, setAutoLoad] = useState<string | null>(null)  // deep-linked scenario to auto-load
 
   const mapRef    = useRef<MapViewHandle>(null)
   const sockRef   = useRef<SimSocket>(new SimSocket())
@@ -52,26 +51,11 @@ export default function App() {
       .then((r) => r.json())
       .then((list: string[]) => {
         setScenarios(list)
-        if (list.length === 0) return
-        // ?scenario=NAME deep-link (from build_and_run.sh) selects + auto-loads
-        // that intersection; else default to fi.helsinki.269, else the first.
-        const param = new URLSearchParams(window.location.search).get('scenario')
-        const pick = (param && list.find((s) => s === param || s.includes(param)))
-          || list.find((s) => s.includes('269')) || list[0]
-        setScenario(pick)
-        if (param) setAutoLoad(pick)
+        // default to fi.helsinki.269 when present, else the first scenario
+        if (list.length > 0) setScenario(list.find((s) => s.includes('269')) ?? list[0])
       })
       .catch(console.error)
   }, [])
-
-  // auto-Load the network once the deep-linked scenario is selected
-  useEffect(() => {
-    if (autoLoad && scenario === autoLoad) {
-      handleLoad()
-      setAutoLoad(null)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoLoad, scenario])
 
   const handleLoad = useCallback(() => {
     if (!scenario) return
