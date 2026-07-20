@@ -171,8 +171,14 @@ def _ego_graph(vid: str, net: object, scenario: str) -> dict:
         ox, oy = v.getPosition(oid)
         d = math.hypot(ox - x, oy - y)
         if d <= FCD_RADIUS:
+            # carry the observed object's position/speed (like a real CPM report),
+            # so a fusion node can localise it from observations alone — no need
+            # for the object to be a probe itself
+            olon, olat = net.convertXY2LonLat(ox, oy)
             sees.append({'@id': f'veh:{oid}',
                          'onLane': _ground_lane(scenario, v.getLaneID(oid)),
+                         'lon': round(olon, 7), 'lat': round(olat, 7),
+                         'speed': round(v.getSpeed(oid), 2),
                          'range': round(d, 1)})
     if sees:
         node['sees'] = sees[:20]
