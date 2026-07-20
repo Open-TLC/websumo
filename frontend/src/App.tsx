@@ -3,7 +3,7 @@ import { Controls } from './Controls'
 import { InspectorPanel, type Selected } from './InspectorPanel'
 import { LogPanel, type LogEntry } from './LogPanel'
 import { MapView, type MapViewHandle } from './MapView'
-import { SimSocket, type InspectBlock, type FcdGraph } from './ws'
+import { SimSocket, type InspectBlock, type FcdGraph, type Ldm } from './ws'
 
 type SimState = 'idle' | 'running' | 'paused' | 'ended'
 
@@ -25,6 +25,8 @@ export default function App() {
   const [selected, setSelected] = useState<Selected | null>(null)
   const [inspectLive, setInspectLive] = useState<InspectBlock | null>(null)
   const [fcdGraph, setFcdGraph] = useState<FcdGraph | null>(null)  // V2X: selected car's ego graph
+  const [ldm, setLdm] = useState<Ldm | null>(null)                 // V2X: fused shared LDM
+  const [ldmOn, setLdmOn] = useState(false)                        // V2X: LDM overlay toggle
   const [genVtypes, setGenVtypes] = useState<string[]>([])   // vTypes offered by the loaded network
   const [genVtype, setGenVtype] = useState('')               // currently selected injection vType
 
@@ -130,6 +132,10 @@ export default function App() {
           mapRef.current?.setFcd(graph)   // draw its links on the map
         }
       }
+      sock.onLdm = (l) => {
+        setLdm(l)                 // for the stats chip
+        mapRef.current?.setLdm(l) // for the map overlay
+      }
       sock.connect(scenario)
 
       setSimState('running')
@@ -186,6 +192,8 @@ export default function App() {
     setTrafficScale(1.0)
     setMaxRate(null)
     mapRef.current?.updateStep([], {}, {}, 0)
+    setLdm(null)
+    mapRef.current?.setLdm(null)
     clearSelection()
   }, [clearSelection])
 
@@ -198,6 +206,8 @@ export default function App() {
     setTrafficScale(1.0)
     setMaxRate(null)
     mapRef.current?.updateStep([], {}, {}, 0)
+    setLdm(null)
+    mapRef.current?.setLdm(null)
     clearSelection()
   }, [clearSelection])
 
@@ -216,6 +226,14 @@ export default function App() {
     setBasemap(next)
     mapRef.current?.setBasemap(next)
   }, [basemap])
+
+  const handleLdmToggle = useCallback(() => {
+    setLdmOn((on) => {
+      const next = !on
+      mapRef.current?.setLdmOn(next)
+      return next
+    })
+  }, [])
 
   const handleDeselect = useCallback(() => {
     setSelected(null)
@@ -283,6 +301,7 @@ export default function App() {
         trafficScale={trafficScale}
         duration={duration}
         basemap={basemap}
+        ldmOn={ldmOn}
         logUnread={logUnread}
         genVtypes={genVtypes}
         genVtype={genVtype}
@@ -299,6 +318,7 @@ export default function App() {
         onSpeedChange={handleSpeedChange}
         onTrafficScaleChange={handleTrafficScaleChange}
         onBasemapToggle={handleBasemapToggle}
+        onLdmToggle={handleLdmToggle}
       />
       <LogPanel
         open={logOpen}
@@ -315,6 +335,24 @@ export default function App() {
           simActive={simState === 'running' || simState === 'paused'}
           onClose={handleDeselect}
         />
+      )}
+      {ldmOn && ldm && (
+        <div style={{
+          position: 'absolute', bottom: 12, left: 12, zIndex: 15,
+          background: 'rgba(10,10,28,0.92)', border: '1px solid #2a2a4a',
+          borderRadius: 6, padding: '8px 12px', fontSize: 11, color: '#9db4d0',
+          fontFamily: 'ui-monospace, monospace', lineHeight: 1.6,
+        }}>
+          <div style={{ color: '#8ab4ff', fontWeight: 700, letterSpacing: 1, marginBottom: 2 }}>
+            SHARED LDM {selected?.kind === 'vehicle' ? '· probe view' : '· coverage'}
+          </div>
+          <div>{ldm.observers.length} connected {ldm.observers.length === 1 ? 'car' : 'cars'} · {ldm.objects.length} perceived · {ldm.objects.filter((o) => o.confirmed).length} confirmed</div>
+          <div style={{ color: '#667', marginTop: 2 }}>
+            {selected?.kind === 'vehicle'
+              ? '◉ cyan = this car sees · ◉ magenta = only others see'
+              : '◉ green = confirmed (≥2) · ◉ amber = single-source'}
+          </div>
+        </div>
       )}
     </div>
   )

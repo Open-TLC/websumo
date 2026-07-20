@@ -8,6 +8,25 @@ export type InspectBlock = Record<string, unknown> & { kind: string; id: string;
 // V2X experiment: a floating-car egocentric JSON-LD graph (@id = "veh:<vid>")
 export type FcdGraph = Record<string, unknown> & { '@id': string }
 
+// V2X: one object in the fused shared Local Dynamic Map
+export type LdmObject = {
+  '@id': string
+  onLane: string | null
+  lon: number | null
+  lat: number | null
+  speed: number | null
+  observedBy: string[]
+  sources: number
+  confirmed: boolean
+  isProbe: boolean
+}
+export type Ldm = Record<string, unknown> & {
+  '@id': string
+  t: number
+  observers: string[]
+  objects: LdmObject[]
+}
+
 export class SimSocket {
   private ws: WebSocket | null = null
   onStep: ((vehicles: Vehicle[], tls: Record<string, string>, detectors: Record<string, boolean>, t: number, maxRate?: number) => void) | null = null
@@ -15,6 +34,7 @@ export class SimSocket {
   onLog: ((t: number, events: LogEvent[]) => void) | null = null
   onInspect: ((block: InspectBlock) => void) | null = null
   onFcd: ((graph: FcdGraph) => void) | null = null
+  onLdm: ((ldm: Ldm) => void) | null = null
 
   connect(scenario: string): void {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -29,6 +49,8 @@ export class SimSocket {
         this.onInspect?.(d.inspect)
       } else if (d.type === 'fcd') {
         this.onFcd?.(d.graph)
+      } else if (d.type === 'ldm') {
+        this.onLdm?.(d.ldm)
       } else {
         this.onStep?.(d.vehicles ?? [], d.tls ?? {}, d.detectors ?? {}, d.t ?? 0, d.maxRate)
         if (d.inspect) this.onInspect?.(d.inspect)

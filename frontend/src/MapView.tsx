@@ -3,7 +3,7 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { MapboxOverlay } from '@deck.gl/mapbox'
 import { PolygonLayer, LineLayer, ScatterplotLayer } from '@deck.gl/layers'
-import type { Vehicle } from './ws'
+import type { Vehicle, Ldm, LdmObject } from './ws'
 
 export interface MapViewHandle {
   updateStep: (vehicles: Vehicle[], tls: Record<string, string>, detectors: Record<string, boolean>, t: number) => void
@@ -11,6 +11,8 @@ export interface MapViewHandle {
   fitNetwork: (gj: GeoJSON.FeatureCollection) => void
   setSelected: (kind: 'vehicle' | 'tls' | null, id: string | null) => void
   setFcd: (graph: Record<string, unknown> | null) => void
+  setLdm: (ldm: Ldm | null) => void
+  setLdmOn: (on: boolean) => void
 }
 
 interface Props {
@@ -74,6 +76,12 @@ interface FcdLink {
   width: number
 }
 
+// a perception halo around a vehicle in the shared-LDM overlay
+interface LdmHalo {
+  pos: [number, number]
+  color: [number, number, number, number]
+}
+
 const M_PER_DEG_LAT = 111320
 
 function vehiclePolygon(
@@ -122,6 +130,9 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
   const selectedRef = useRef<{ kind: string; id: string } | null>(null)
   // V2X: selected floating car's latest egocentric graph, drawn over the map
   const fcdRef = useRef<Record<string, any> | null>(null)
+  // V2X: fused shared Local Dynamic Map + whether its overlay is on
+  const ldmRef = useRef<Ldm | null>(null)
+  const ldmOnRef = useRef(false)
   const lastStepRef = useRef<{ vehicles: Vehicle[]; tls: Record<string, string>; detectors: Record<string, boolean> }>(
     { vehicles: [], tls: {}, detectors: {} })
   const onPickRef = useRef(onPick)
@@ -172,6 +183,32 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
       }
     }
 
+    // V2X: shared-LDM perception overlay. A halo per vehicle coloured by how the
+    // connected cars collectively perceive it. Two views:
+    //  · no probe selected → coverage by corroboration
+    //      green = confirmed (≥2 probes)  ·  amber = single-source  ·  none = unseen
+    //  · a probe A selected → "what connectivity adds to A"
+    //      cyan = A perceives it  ·  magenta = only *other* probes see it
+    const ldm = ldmRef.current
+    const ldmHalos: LdmHalo[] = []
+    if (ldmOnRef.current && ldm) {
+      const byId = new Map<string, LdmObject>()
+      for (const o of ldm.objects) byId.set(o['@id'].replace(/^veh:/, ''), o)
+      const selProbe = selVehicle && byId.get(selVehicle)?.isProbe ? selVehicle : null
+      for (const v of vehicles) {
+        const o = byId.get(v[0])
+        let color: [number, number, number, number] | null = null
+        if (selProbe) {
+          if (v[0] === selProbe) color = [0, 240, 255, 255]              // the probe itself
+          else if (o?.observedBy.includes(selProbe)) color = [0, 220, 255, 210]  // A sees it
+          else if (o) color = [235, 90, 220, 210]                        // only others see it
+        } else if (o) {
+          color = o.sources >= 2 ? [40, 220, 90, 220] : [235, 170, 40, 220]
+        }
+        if (color) ldmHalos.push({ pos: [v[1], v[2]], color })
+      }
+    }
+
     deckRef.current?.setProps({
       layers: [
         new LineLayer<Detector>({
@@ -209,6 +246,18 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
           lineWidthMinPixels: 1,
           stroked: true,
           pickable: true,
+        }),
+        new ScatterplotLayer<LdmHalo>({
+          id: 'ldm-halos',
+          data: ldmHalos,
+          getPosition: (d) => d.pos,
+          getLineColor: (d) => d.color,
+          getRadius: 3.6,
+          radiusUnits: 'meters',
+          radiusMinPixels: 8,
+          stroked: true,
+          filled: false,
+          lineWidthMinPixels: 2,
         }),
         new PolygonLayer<Vehicle>({
           id: 'vehicles',
@@ -272,6 +321,16 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
       fcdRef.current = graph
       const { vehicles, tls, detectors } = lastStepRef.current
       renderDeck(vehicles, tls, detectors)
+    },
+    setLdm(ldm) {
+      // stored only; the next step render (or setLdmOn) draws it against fresh
+      // positions. LDM arrives ~3 Hz, decoupled from the ~10 Hz step frames.
+      ldmRef.current = ldm
+    },
+    setLdmOn(on) {
+      ldmOnRef.current = on
+      const { vehicles, tls, detectors } = lastStepRef.current
+      renderDeck(vehicles, tls, detectors)   // reflect the toggle immediately
     },
     setSelected(kind, id) {
       selectedRef.current = kind && id ? { kind, id } : null

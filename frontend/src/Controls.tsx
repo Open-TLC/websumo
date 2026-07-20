@@ -8,6 +8,7 @@ interface Props {
   trafficScale: number
   duration: number
   basemap: boolean
+  ldmOn: boolean
   logUnread: number
   genVtypes: string[]
   genVtype: string
@@ -24,6 +25,7 @@ interface Props {
   onSpeedChange: (v: number) => void
   onTrafficScaleChange: (v: number) => void
   onBasemapToggle: () => void
+  onLdmToggle: () => void
 }
 
 const btn = (label: string, onClick: () => void, disabled = false, accent = false) => (
@@ -61,10 +63,10 @@ const DURATIONS = [
 ]
 
 export function Controls({
-  scenarios, scenario, simState, simTime, speed, maxRate, trafficScale, duration, basemap,
+  scenarios, scenario, simState, simTime, speed, maxRate, trafficScale, duration, basemap, ldmOn,
   logUnread, genVtypes, genVtype, onGenVtypeChange, onToggleLog,
   onScenarioChange, onDurationChange, onLoad, onStart, onPause, onResume, onStop, onReset,
-  onSpeedChange, onTrafficScaleChange, onBasemapToggle,
+  onSpeedChange, onTrafficScaleChange, onBasemapToggle, onLdmToggle,
 }: Props) {
   const idle = simState === 'idle'
   const running = simState === 'running'
@@ -110,6 +112,18 @@ export function Controls({
                 {logUnread > 99 ? '99+' : logUnread}
               </span>
             )}
+          </button>
+          <button
+            onClick={onLdmToggle}
+            title="V2X shared Local Dynamic Map — perception overlay"
+            style={{
+              padding: '3px 10px', border: `1px solid ${ldmOn ? '#40c05a' : '#3a3a6a'}`,
+              borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 600,
+              background: ldmOn ? '#12301a' : '#1a1a30',
+              color: ldmOn ? '#5ad07a' : '#667',
+            }}
+          >
+            LDM
           </button>
           <button
             onClick={onBasemapToggle}
