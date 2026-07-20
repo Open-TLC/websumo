@@ -267,9 +267,11 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
       renderDeck(vehicles, tls, detectors)
     },
     setFcd(graph) {
-      // store only; the next step render (~10 Hz) draws it against fresh
-      // positions. Clearing selection re-renders via setSelected → overlay off.
+      // redraw against the last known positions so the overlay appears at once
+      // — including while paused, when no step render would otherwise fire
       fcdRef.current = graph
+      const { vehicles, tls, detectors } = lastStepRef.current
+      renderDeck(vehicles, tls, detectors)
     },
     setSelected(kind, id) {
       selectedRef.current = kind && id ? { kind, id } : null

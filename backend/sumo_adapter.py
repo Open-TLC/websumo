@@ -386,6 +386,19 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
                     f'sim.{scenario}.state',
                     json.dumps({'type': 'inspect', 'inspect': block}).encode(),
                 )
+                # V2X: also push the ego graph once, so selecting a floating car
+                # fills its JSON-LD + map overlay even while paused (the step
+                # loop, which normally emits these, is idle then)
+                if selected.get('kind') == 'vehicle':
+                    def _oneshot_fcd(vid=selected['id']):
+                        if vid in traci.vehicle.getIDList() and _is_fcd(vid, fcd_sel):
+                            return _ego_graph(vid, net, scenario)
+                        return None
+                    graph = await loop.run_in_executor(executor, _oneshot_fcd)
+                    if graph:
+                        await nc.publish(
+                            f'kg.{scenario}.fcd.{selected["id"]}',
+                            json.dumps(graph).encode())
         elif cmd == 'spawn':
             edge, vtype = data.get('edge'), data.get('vtype')
             lane = data.get('lane')   # specific lane index, or None for 'free'
