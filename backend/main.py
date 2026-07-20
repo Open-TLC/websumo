@@ -198,10 +198,19 @@ async def ws_endpoint(websocket: WebSocket, scenario: str) -> None:
         except Exception:
             pass
 
+    async def on_fcd(msg: nats_client.aio.msg.Msg) -> None:
+        # V2X experiment: floating-car egocentric JSON-LD graph — wrap for routing
+        try:
+            await websocket.send_json({'type': 'fcd', 'graph': json.loads(msg.data)})
+        except Exception:
+            pass
+
     await nc.subscribe(f'sim.{scenario}.state', cb=on_state)
     await nc.subscribe(f'sim.{scenario}.end',   cb=on_end)
     # log payloads already carry {"type": "log"} — forward verbatim like state
     await nc.subscribe(f'sim.{scenario}.log',   cb=on_state)
+    # V2X: '>' (multi-token) because scenario/vehicle ids contain dots
+    await nc.subscribe(f'kg.{scenario}.fcd.>',  cb=on_fcd)
 
     try:
         while True:

@@ -3,7 +3,7 @@ import { Controls } from './Controls'
 import { InspectorPanel, type Selected } from './InspectorPanel'
 import { LogPanel, type LogEntry } from './LogPanel'
 import { MapView, type MapViewHandle } from './MapView'
-import { SimSocket, type InspectBlock } from './ws'
+import { SimSocket, type InspectBlock, type FcdGraph } from './ws'
 
 type SimState = 'idle' | 'running' | 'paused' | 'ended'
 
@@ -24,6 +24,7 @@ export default function App() {
   const [startupLines, setStartupLines] = useState<string[]>([])
   const [selected, setSelected] = useState<Selected | null>(null)
   const [inspectLive, setInspectLive] = useState<InspectBlock | null>(null)
+  const [fcdGraph, setFcdGraph] = useState<FcdGraph | null>(null)  // V2X: selected car's ego graph
   const [genVtypes, setGenVtypes] = useState<string[]>([])   // vTypes offered by the loaded network
   const [genVtype, setGenVtype] = useState('')               // currently selected injection vType
 
@@ -121,6 +122,12 @@ export default function App() {
         if (!logOpenRef.current) setLogUnread((u) => u + events.length)
       }
       sock.onInspect = (block) => setInspectLive(block)
+      sock.onFcd = (graph) => {
+        // keep only the currently-selected floating car's graph (avoids re-render spam)
+        const vid = String(graph['@id'] ?? '').replace(/^veh:/, '')
+        if (selectedRef.current?.kind === 'vehicle' && selectedRef.current.id === vid)
+          setFcdGraph(graph)
+      }
       sock.connect(scenario)
 
       setSimState('running')
@@ -210,6 +217,7 @@ export default function App() {
   const handleDeselect = useCallback(() => {
     setSelected(null)
     setInspectLive(null)
+    setFcdGraph(null)
     mapRef.current?.setSelected(null, null)
     sockRef.current.send('select', {})
   }, [])
@@ -221,6 +229,7 @@ export default function App() {
     }
     setSelected(sel)
     setInspectLive(null)
+    setFcdGraph(null)          // cleared until this car's ego graph arrives
     setLogOpen(false)          // inspector and log share the right side
     mapRef.current?.setSelected(kind, id)
     sockRef.current.send('select', { kind, id, client: 'web' })
@@ -296,6 +305,7 @@ export default function App() {
         <InspectorPanel
           selected={selected}
           live={inspectLive}
+          fcdGraph={fcdGraph}
           simTime={simTime}
           simActive={simState === 'running' || simState === 'paused'}
           onClose={handleDeselect}

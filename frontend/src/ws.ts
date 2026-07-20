@@ -5,12 +5,16 @@ export type LogEvent = { type: string; text: string; lane?: string }
 
 export type InspectBlock = Record<string, unknown> & { kind: string; id: string; gone?: boolean }
 
+// V2X experiment: a floating-car egocentric JSON-LD graph (@id = "veh:<vid>")
+export type FcdGraph = Record<string, unknown> & { '@id': string }
+
 export class SimSocket {
   private ws: WebSocket | null = null
   onStep: ((vehicles: Vehicle[], tls: Record<string, string>, detectors: Record<string, boolean>, t: number, maxRate?: number) => void) | null = null
   onEnd: (() => void) | null = null
   onLog: ((t: number, events: LogEvent[]) => void) | null = null
   onInspect: ((block: InspectBlock) => void) | null = null
+  onFcd: ((graph: FcdGraph) => void) | null = null
 
   connect(scenario: string): void {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -23,6 +27,8 @@ export class SimSocket {
         this.onLog?.(d.t ?? 0, d.events ?? [])
       } else if (d.type === 'inspect') {
         this.onInspect?.(d.inspect)
+      } else if (d.type === 'fcd') {
+        this.onFcd?.(d.graph)
       } else {
         this.onStep?.(d.vehicles ?? [], d.tls ?? {}, d.detectors ?? {}, d.t ?? 0, d.maxRate)
         if (d.inspect) this.onInspect?.(d.inspect)
