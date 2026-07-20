@@ -35,10 +35,64 @@ def _ground_edge(scenario: str, edge_id: str | None) -> str | None:
 
 
 def _ground_lane(scenario: str, lane_id: str | None) -> str | None:
-    # lane index -> A<i+1>; index->letter direction unconfirmed (Phase 0), tentative
-    m = re.match(rf'(approach|exit)_({_HEX})_[a-z]+_(\d+)$', lane_id or '')
-    return (f'{_iri_base(scenario)}/{m.group(1)}/{m.group(2)}/lane/A{int(m.group(3)) + 1}'
-            if m else None)
+    # The graph's lane letter encodes role×mode: approach car=A / tram=TA,
+    # exit car=D / tram=TD (verified against 269's graph.ttl). The number is the
+    # SUMO lane index +1 — count matches; index→physical-lane direction is still
+    # tentative (Phase 0). Modes other than tram fall back to the car letter.
+    m = re.match(rf'(approach|exit)_({_HEX})_([a-z]+)_(\d+)$', lane_id or '')
+    if not m:
+        return None
+    role, hex_id, mode, idx = m.group(1), m.group(2), m.group(3), int(m.group(4))
+    letter = ('T' if mode == 'tram' else '') + ('A' if role == 'approach' else 'D')
+    return f'{_iri_base(scenario)}/{role}/{hex_id}/lane/{letter}{idx + 1}'
+
+
+# Ground a TLS movement (SUMO tls link index) onto the graph's oct:Connection.
+# The graph has no SignalGroup abstraction (269's signal_groups are empty), but
+# each Connection is keyed by (fromLane, toDepartureLane) — exactly what SUMO's
+# getControlledLinks gives per link index. Built once at start into _LINK_GROUND.
+OCT_GRAPH_DIR = os.environ.get('OCT_GRAPH_DIR', '/repos/helsinki_intersections/intersections')
+_LINK_GROUND: dict = {}   # (tlsId, linkIndex) -> {fromLane, toLane, onConnection}
+
+
+def _load_connection_map(scenario: str) -> dict:
+    """(fromLaneIRI, toLaneIRI) -> connection IRI, read from the static graph.
+    Best-effort: {} if graph.ttl isn't found — connection grounding is then
+    omitted, but lane grounding (which needs no graph file) is unaffected."""
+    path = os.path.join(OCT_GRAPH_DIR, scenario, 'graph.ttl')
+    if not os.path.exists(path):
+        return {}
+    base = _iri_base(scenario)
+    text = open(path).read()
+    out = {}
+    pat = re.compile(
+        re.escape(base) + r'/connection/([0-9a-f]+)> a oct:Connection ;(.*?)\.\n', re.S)
+    for m in pat.finditer(text):
+        cid, body = m.group(1), m.group(2)
+        fl = re.search(r'oct:fromLane <([^>]+)>', body)
+        tl = re.search(r'oct:toDepartureLane <([^>]+)>', body)
+        if fl and tl:
+            out[(fl.group(1), tl.group(1))] = f'{base}/connection/{cid}'
+    return out
+
+
+def _build_link_ground(scenario: str) -> None:
+    """Populate _LINK_GROUND: each TLS link index -> its grounded from/to lanes
+    and (when the graph is available) the connection IRI. Runs once after the
+    sim starts, in the libsumo thread."""
+    conn_map = _load_connection_map(scenario)
+    _LINK_GROUND.clear()
+    for tid in traci.trafficlight.getIDList():
+        for idx, spec in enumerate(traci.trafficlight.getControlledLinks(tid)):
+            if not spec:
+                continue
+            in_lane, out_lane, _via = spec[0]
+            fi = _ground_lane(scenario, in_lane)
+            ti = _ground_lane(scenario, out_lane)
+            _LINK_GROUND[(tid, idx)] = {
+                'fromLane': fi, 'toLane': ti,
+                'onConnection': conn_map.get((fi, ti)),
+            }
 
 
 def _is_fcd(vid: str, selector: str) -> bool:
@@ -67,6 +121,9 @@ def _fcd_context(scenario: str) -> dict:
         'veh': f'urn:sim:{scenario}:veh:',   # sim-local ids (real world = plate/pseudonym)
         'onLane': {'@type': '@id'},
         'onEdge': {'@type': '@id'},
+        'fromLane': {'@type': '@id'},
+        'toLane': {'@type': '@id'},
+        'onConnection': {'@type': '@id'},
     }
 
 
@@ -91,11 +148,22 @@ def _ego_graph(vid: str, net: object, scenario: str) -> dict:
         node['following'] = {'@id': f'veh:{leader[0]}', 'gap': round(leader[1], 1)}
     nt = v.getNextTLS(vid)
     if nt:
-        _tls, idx, dist, state = nt[0]
-        # SignalGroup IRI deferred (Phase 0 gap): ground to junction + signal index
-        node['approaching'] = {'@id': _iri_base(scenario),
-                               'signalIndex': int(idx), 'distance': round(dist, 1),
-                               'state': state}
+        tls_id, idx, dist, state = nt[0]
+        # Ground to the junction + the specific movement (oct:Connection) the car
+        # is about to make, keyed by (fromLane, toLane) via _LINK_GROUND. The graph
+        # has no SignalGroup abstraction, so the Connection IS the resolvable link;
+        # fromLane/toLane are always grounded, onConnection when the graph is loaded.
+        appr = {'@id': _iri_base(scenario),
+                'signalIndex': int(idx), 'distance': round(dist, 1), 'state': state}
+        g = _LINK_GROUND.get((tls_id, int(idx)))
+        if g:
+            if g['fromLane']:
+                appr['fromLane'] = g['fromLane']
+            if g['toLane']:
+                appr['toLane'] = g['toLane']
+            if g['onConnection']:
+                appr['onConnection'] = g['onConnection']
+        node['approaching'] = appr
     sees = []
     for oid in v.getIDList():
         if oid == vid:
@@ -194,7 +262,8 @@ def _inspect_block(sel: dict) -> dict:
 
 
 def _do_step(net: object, sel: dict | None = None, full: bool = True,
-             scenario: str | None = None, fcd_sel: str | None = None) -> dict:
+             scenario: str | None = None, fcd_sel: str | None = None,
+             want_fcd: bool = False) -> dict:
     """Advance one simulation step.
 
     Always steps and collects events (cheap) + the empty flag; gathers the full
@@ -242,8 +311,11 @@ def _do_step(net: object, sel: dict | None = None, full: bool = True,
     }
     if sel:
         out['inspect'] = _inspect_block(sel)
-    # V2X experiment: egocentric graphs for the floating cars (published separately)
-    if fcd_sel and scenario:
+    # V2X experiment: egocentric graphs for the floating cars (published
+    # separately). Rate-limited by the caller (want_fcd) to ~a few Hz — the
+    # per-vehicle perception scan is the expensive part, so we skip the BUILD,
+    # not just the publish, on the frames in between.
+    if want_fcd and fcd_sel and scenario:
         fcd = {vid: _ego_graph(vid, net, scenario)
                for vid in traci.vehicle.getIDList() if _is_fcd(vid, fcd_sel)}
         if fcd:
@@ -352,8 +424,11 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
     spawn_n = 0                  # unique manual_{n} vehicle ids
     last_t = 0.0             # last step time (thread-safe: no libsumo call in callbacks)
     current_scale = max(0.0, min(init_scale, 5.0))   # 0 => don't auto-end on empty
-    # V2X experiment: which vehicles emit egocentric graphs (default: injected cars)
+    # V2X experiment: which vehicles emit egocentric graphs (default: injected
+    # cars) and how often (default ~3 Hz wall — real CAM/CPM cadence, and the
+    # eye doesn't need 10 Hz; graphs are heavier than the vehicle snapshot)
     fcd_sel = os.environ.get('FCD_SELECTOR', 'manual')
+    fcd_dt = 1.0 / max(0.5, float(os.environ.get('FCD_HZ', '3')))
 
     loop = asyncio.get_running_loop()
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='libsumo')
@@ -438,6 +513,8 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
     rf, lr = _build_route_cache(net)
     route_cache.update(rf)
     lane_route_cache.update(lr)
+    # V2X: map each TLS link index -> grounded movement (fromLane/toLane/connection)
+    await loop.run_in_executor(executor, _build_link_ground, scenario)
     # apply the pre-Start traffic scale before the first step, so scale=0 means
     # truly zero flow insertion from t=0 (no vehicles slip in during startup)
     await loop.run_in_executor(executor, traci.simulation.setScale, current_scale)
@@ -450,6 +527,7 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
     # smoothed wall period between iteration starts — includes ALL overhead
     # (step, serialize, NATS flush, loop), so delta_t/period is the true rate
     last_frame = 0.0       # wall time of the last UI snapshot published
+    last_fcd = 0.0         # wall time of the last floating-car graph emit
     next_step = None       # absolute wall schedule for the next step (self-correcting)
     achieved_ema = None    # smoothed actual sim-rate (×RT), measured per frame
     prev_fw = None         # wall time of the previous frame
@@ -476,8 +554,12 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
             # only build the full vehicle snapshot on a UI frame (~10 Hz wall);
             # in between, bare steps keep the sim moving cheaply
             full = (t_start - last_frame) >= FRAME_DT
+            # egocentric graphs are a decimated subset of UI frames (~3 Hz)
+            want_fcd = full and (t_start - last_fcd) >= fcd_dt
+            if want_fcd:
+                last_fcd = t_start
             result = await loop.run_in_executor(
-                executor, _do_step, net, selected, full, scenario, fcd_sel)
+                executor, _do_step, net, selected, full, scenario, fcd_sel, want_fcd)
             last_t = result['t']
             empty = result.pop('_empty')
             frame_dets.update(result.pop('det_on'))   # union across the frame's steps
