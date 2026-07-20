@@ -125,8 +125,10 @@ export default function App() {
       sock.onFcd = (graph) => {
         // keep only the currently-selected floating car's graph (avoids re-render spam)
         const vid = String(graph['@id'] ?? '').replace(/^veh:/, '')
-        if (selectedRef.current?.kind === 'vehicle' && selectedRef.current.id === vid)
+        if (selectedRef.current?.kind === 'vehicle' && selectedRef.current.id === vid) {
           setFcdGraph(graph)
+          mapRef.current?.setFcd(graph)   // draw its links on the map
+        }
       }
       sock.connect(scenario)
 
@@ -140,6 +142,7 @@ export default function App() {
       // vehicles are per-run; a TLS selection stays valid across runs
       setSelected((sel) => {
         if (sel?.kind === 'vehicle') {
+          mapRef.current?.setFcd(null)
           mapRef.current?.setSelected(null, null)
           return null
         }
@@ -218,6 +221,7 @@ export default function App() {
     setSelected(null)
     setInspectLive(null)
     setFcdGraph(null)
+    mapRef.current?.setFcd(null)
     mapRef.current?.setSelected(null, null)
     sockRef.current.send('select', {})
   }, [])
@@ -230,6 +234,7 @@ export default function App() {
     setSelected(sel)
     setInspectLive(null)
     setFcdGraph(null)          // cleared until this car's ego graph arrives
+    mapRef.current?.setFcd(null)
     setLogOpen(false)          // inspector and log share the right side
     mapRef.current?.setSelected(kind, id)
     sockRef.current.send('select', { kind, id, client: 'web' })

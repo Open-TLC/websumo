@@ -10,6 +10,7 @@ export interface MapViewHandle {
   setBasemap: (on: boolean) => void
   fitNetwork: (gj: GeoJSON.FeatureCollection) => void
   setSelected: (kind: 'vehicle' | 'tls' | null, id: string | null) => void
+  setFcd: (graph: Record<string, unknown> | null) => void
 }
 
 interface Props {
@@ -49,6 +50,28 @@ function tlsColor(stateStr: string | undefined, sigIdx: number): [number, number
     case 'Y': return [230, 200, 0, 255]
     default:  return [140, 140, 140, 180]
   }
+}
+
+// V2X overlay: colour the "approaching" link by the next signal's state char
+function fcdStateColor(c: string | undefined): [number, number, number, number] {
+  switch ((c ?? '')[0]) {
+    case 'G':
+    case 'g': return [40, 220, 90, 255]
+    case 'r':
+    case 'R': return [230, 50, 50, 255]
+    case 'y':
+    case 'Y':
+    case 'o': return [235, 200, 40, 255]
+    default:  return [150, 150, 170, 220]
+  }
+}
+
+// one drawn edge of the egocentric graph (ego → leader / neighbour / signal)
+interface FcdLink {
+  from: [number, number]
+  to: [number, number]
+  color: [number, number, number, number]
+  width: number
 }
 
 const M_PER_DEG_LAT = 111320
@@ -97,6 +120,8 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
   const detectorsRef = useRef<Detector[]>([])
   const generatorsRef = useRef<Generator[]>([])
   const selectedRef = useRef<{ kind: string; id: string } | null>(null)
+  // V2X: selected floating car's latest egocentric graph, drawn over the map
+  const fcdRef = useRef<Record<string, any> | null>(null)
   const lastStepRef = useRef<{ vehicles: Vehicle[]; tls: Record<string, string>; detectors: Record<string, boolean> }>(
     { vehicles: [], tls: {}, detectors: {} })
   const onPickRef = useRef(onPick)
@@ -114,6 +139,39 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
     lastStepRef.current = { vehicles, tls, detectors }
     const sel = selectedRef.current
     const selVehicle = sel?.kind === 'vehicle' ? sel.id : null
+
+    // V2X: draw the selected floating car's egocentric graph as links to its
+    // leader (following), perceived neighbours (sees), and next signal
+    // (approaching). Endpoints come from the current step's vehicle positions,
+    // so the lines always land on the rendered vehicles.
+    const fcd = fcdRef.current
+    const egoId = fcd ? String(fcd['@id'] ?? '').replace(/^veh:/, '') : null
+    const fcdLinks: FcdLink[] = []
+    if (fcd && egoId && egoId === selVehicle) {
+      const pos = new Map<string, [number, number]>()
+      for (const v of vehicles) pos.set(v[0], [v[1], v[2]])
+      const ego = pos.get(egoId)
+      if (ego) {
+        const foll = fcd.following as { '@id': string } | undefined
+        if (foll) {
+          const lp = pos.get(String(foll['@id']).replace(/^veh:/, ''))
+          if (lp) fcdLinks.push({ from: ego, to: lp, color: [255, 170, 40, 255], width: 3 })
+        }
+        for (const s of (fcd.sees as { '@id': string }[] | undefined) ?? []) {
+          const np = pos.get(String(s['@id']).replace(/^veh:/, ''))
+          if (np) fcdLinks.push({ from: ego, to: np, color: [90, 200, 230, 130], width: 1 })
+        }
+        const appr = fcd.approaching as { signalIndex: number; state: string } | undefined
+        if (appr) {
+          const sl = stopLinesRef.current.find((s) => s.sigIdx === appr.signalIndex)
+          if (sl) {
+            const mid: [number, number] = [(sl.from[0] + sl.to[0]) / 2, (sl.from[1] + sl.to[1]) / 2]
+            fcdLinks.push({ from: ego, to: mid, color: fcdStateColor(appr.state), width: 2.5 })
+          }
+        }
+      }
+    }
+
     deckRef.current?.setProps({
       layers: [
         new LineLayer<Detector>({
@@ -163,6 +221,15 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
           lineWidthMinPixels: 0.5,
           pickable: true,
         }),
+        new LineLayer<FcdLink>({
+          id: 'fcd-links',
+          data: fcdLinks,
+          getSourcePosition: (d) => d.from,
+          getTargetPosition: (d) => d.to,
+          getColor: (d) => d.color,
+          getWidth: (d) => d.width,
+          widthUnits: 'pixels',
+        }),
       ],
     })
   }
@@ -198,6 +265,11 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
     },
     updateStep(vehicles: Vehicle[], tls: Record<string, string>, detectors: Record<string, boolean>) {
       renderDeck(vehicles, tls, detectors)
+    },
+    setFcd(graph) {
+      // store only; the next step render (~10 Hz) draws it against fresh
+      // positions. Clearing selection re-renders via setSelected → overlay off.
+      fcdRef.current = graph
     },
     setSelected(kind, id) {
       selectedRef.current = kind && id ? { kind, id } : null
