@@ -3,7 +3,9 @@ sys.path.insert(0, '/usr/local/lib/python3.14/site-packages/sumo/tools')
 
 import asyncio
 import json
+import math
 import os
+import re
 import signal
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -13,6 +15,100 @@ import nats
 import sumolib
 
 SCENARIOS_DIR = os.environ.get('SCENARIOS_DIR', '/tmp/shared/sumotest')
+
+# ---- V2X experiment: floating-car egocentric knowledge graphs -----------------
+# Ground SUMO ids onto the static intersection graph's opencontroller.org IRIs.
+# The hex approach id in a SUMO edge name is the linkage key (Phase 0 finding).
+# This is a swappable seam: id-lookup in sim, GPS map-matching in the real world.
+_HEX = r'[0-9a-fA-F]+'
+FCD_RADIUS = 50.0   # metres — "sees" / neighbour range
+
+
+def _iri_base(scenario: str) -> str:
+    # fi.helsinki.269 -> https://opencontroller.org/id/intersection/fi-helsinki-269
+    return f'https://opencontroller.org/id/intersection/{scenario.replace(".", "-")}'
+
+
+def _ground_edge(scenario: str, edge_id: str | None) -> str | None:
+    m = re.match(rf'(approach|exit)_({_HEX})_[a-z]+$', edge_id or '')
+    return f'{_iri_base(scenario)}/{m.group(1)}/{m.group(2)}' if m else None
+
+
+def _ground_lane(scenario: str, lane_id: str | None) -> str | None:
+    # lane index -> A<i+1>; index->letter direction unconfirmed (Phase 0), tentative
+    m = re.match(rf'(approach|exit)_({_HEX})_[a-z]+_(\d+)$', lane_id or '')
+    return (f'{_iri_base(scenario)}/{m.group(1)}/{m.group(2)}/lane/A{int(m.group(3)) + 1}'
+            if m else None)
+
+
+def _is_fcd(vid: str, selector: str) -> bool:
+    """Is this vehicle a floating car (probe)? Configurable selector."""
+    if not selector or selector == 'none':
+        return False
+    if selector == 'all':
+        return True
+    if selector == 'manual':
+        return vid.startswith('manual_')
+    if selector.startswith('fraction:'):
+        try:
+            frac = float(selector.split(':', 1)[1])
+        except ValueError:
+            return False
+        return (hash(vid) & 0x7fffffff) % 1000 < frac * 1000   # deterministic per id
+    if selector.startswith('vtype:'):
+        return traci.vehicle.getTypeID(vid) == selector.split(':', 1)[1]
+    return False
+
+
+def _fcd_context(scenario: str) -> dict:
+    return {
+        '@vocab': 'https://opencontroller.org/ns/traffic#',
+        'oct': 'https://opencontroller.org/ns/traffic#',
+        'veh': f'urn:sim:{scenario}:veh:',   # sim-local ids (real world = plate/pseudonym)
+        'onLane': {'@type': '@id'},
+        'onEdge': {'@type': '@id'},
+    }
+
+
+def _ego_graph(vid: str, net: object, scenario: str) -> dict:
+    """Egocentric JSON-LD graph of what vehicle `vid` perceives, grounded on the
+    static infra IRIs. Runs in the libsumo thread (called from _do_step)."""
+    v = traci.vehicle
+    x, y = v.getPosition(vid)
+    lon, lat = net.convertXY2LonLat(x, y)
+    node = {
+        '@context': _fcd_context(scenario),
+        '@id': f'veh:{vid}', '@type': 'Vehicle',
+        't': round(traci.simulation.getTime(), 1), 'confidence': 1.0,
+        'onLane': _ground_lane(scenario, v.getLaneID(vid)),
+        'onEdge': _ground_edge(scenario, v.getRoadID(vid)),
+        'lon': round(lon, 7), 'lat': round(lat, 7),
+        'speed': round(v.getSpeed(vid), 2),
+        'heading': round(v.getAngle(vid), 1),
+    }
+    leader = v.getLeader(vid, FCD_RADIUS)
+    if leader and leader[0]:
+        node['following'] = {'@id': f'veh:{leader[0]}', 'gap': round(leader[1], 1)}
+    nt = v.getNextTLS(vid)
+    if nt:
+        _tls, idx, dist, state = nt[0]
+        # SignalGroup IRI deferred (Phase 0 gap): ground to junction + signal index
+        node['approaching'] = {'@id': _iri_base(scenario),
+                               'signalIndex': int(idx), 'distance': round(dist, 1),
+                               'state': state}
+    sees = []
+    for oid in v.getIDList():
+        if oid == vid:
+            continue
+        ox, oy = v.getPosition(oid)
+        d = math.hypot(ox - x, oy - y)
+        if d <= FCD_RADIUS:
+            sees.append({'@id': f'veh:{oid}',
+                         'onLane': _ground_lane(scenario, v.getLaneID(oid)),
+                         'range': round(d, 1)})
+    if sees:
+        node['sees'] = sees[:20]
+    return node
 
 
 def _collect_events() -> list[dict]:
@@ -97,7 +193,8 @@ def _inspect_block(sel: dict) -> dict:
     return {'kind': sel['kind'], 'id': sel['id'], 'gone': True}
 
 
-def _do_step(net: object, sel: dict | None = None, full: bool = True) -> dict:
+def _do_step(net: object, sel: dict | None = None, full: bool = True,
+             scenario: str | None = None, fcd_sel: str | None = None) -> dict:
     """Advance one simulation step.
 
     Always steps and collects events (cheap) + the empty flag; gathers the full
@@ -145,6 +242,12 @@ def _do_step(net: object, sel: dict | None = None, full: bool = True) -> dict:
     }
     if sel:
         out['inspect'] = _inspect_block(sel)
+    # V2X experiment: egocentric graphs for the floating cars (published separately)
+    if fcd_sel and scenario:
+        fcd = {vid: _ego_graph(vid, net, scenario)
+               for vid in traci.vehicle.getIDList() if _is_fcd(vid, fcd_sel)}
+        if fcd:
+            out['fcd'] = fcd
     return out
 
 
@@ -249,6 +352,8 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
     spawn_n = 0                  # unique manual_{n} vehicle ids
     last_t = 0.0             # last step time (thread-safe: no libsumo call in callbacks)
     current_scale = max(0.0, min(init_scale, 5.0))   # 0 => don't auto-end on empty
+    # V2X experiment: which vehicles emit egocentric graphs (default: injected cars)
+    fcd_sel = os.environ.get('FCD_SELECTOR', 'manual')
 
     loop = asyncio.get_running_loop()
     executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='libsumo')
@@ -358,10 +463,16 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
             # only build the full vehicle snapshot on a UI frame (~10 Hz wall);
             # in between, bare steps keep the sim moving cheaply
             full = (t_start - last_frame) >= FRAME_DT
-            result = await loop.run_in_executor(executor, _do_step, net, selected, full)
+            result = await loop.run_in_executor(
+                executor, _do_step, net, selected, full, scenario, fcd_sel)
             last_t = result['t']
             empty = result.pop('_empty')
             frame_dets.update(result.pop('det_on'))   # union across the frame's steps
+            # V2X: publish each floating car's egocentric graph on its own subject
+            fcd = result.pop('fcd', None)
+            if fcd:
+                for vid, graph in fcd.items():
+                    await nc.publish(f'kg.{scenario}.fcd.{vid}', json.dumps(graph).encode())
             # End on: reaching the configured end time, OR an empty network — but
             # NOT when scale is 0 (an intentionally empty sim awaiting injection).
             if (end_bound > 0 and last_t >= end_bound) or (empty and current_scale > 0):

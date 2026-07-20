@@ -53,9 +53,19 @@ Minimal vocab first; SOSA/SSN provenance optional later.
 
 ### D — Grounding (ID → IRI)
 Demo: a lookup built at adapter start, SUMO id → IRI, behind `ground(id)`.
-**Gate task (Phase 0): confirm the mapping exists** — does the intersection `.ttl`
-carry lane/edge/junction IRIs, and does graph2sumo's naming map to them
-deterministically? Read `helsinki_intersections` + graph2sumo naming; do not modify them.
+
+**Phase 0 result (2026-07-20): GATE PASSED.** The intersection graph uses real
+`opencontroller.org` IRIs and the hex approach id in SUMO edge names is the key:
+- edge `approach_<HEX>_car` → `…/intersection/fi-helsinki-269/approach/<HEX>`
+- lane `approach_<HEX>_car_<i>` → `…/approach/<HEX>/lane/A<i+1>` (3 lanes = 3 A-lanes ✓; index→letter direction unconfirmed, tentative)
+- junction `junction_fi.helsinki.269` → `…/intersection/fi-helsinki-269` (dot→dash)
+- graph already imports **SOSA/SSN, GeoSPARQL, PROV, QUDT** and defines `oct:` —
+  reuse those, don't invent predicates.
+- **Gap:** SUMO signal-index → `oct:SignalGroup` IRI is NOT trivially available
+  (269's `oc_controller.json` has empty `signal_groups`). Demo grounds
+  `:approaching` to the junction IRI + SUMO signal index + state; exact
+  SignalGroup IRI (derivable from `oct:Connection`/`controlsConnection`) deferred.
+- Vehicle ids are sim-local (`urn:sim:{scenario}:veh:{id}`), not stable real IRIs.
 
 ### E — Receiver + visualization (extend WebSUMO)
 - Relay `kg.{scenario}.fcd.*` through the FastAPI WS (same as `state`/`log`/`inspect`).
