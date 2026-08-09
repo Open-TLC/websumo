@@ -161,8 +161,21 @@ def build_network_geojson(net_xml_path: str) -> dict:
     if net_xml_path in _cache:
         return _cache[net_xml_path]
 
-    net = sumolib.net.readNet(net_xml_path, withInternal=False, withPrograms=True)
+    # withInternal=True so pedestrian crossing/walkingarea edges (internal
+    # ':crossing_*' / ':...w*' ids) are available for rendering.
+    net = sumolib.net.readNet(net_xml_path, withInternal=True, withPrograms=True)
     features = []
+
+    # Map each crossing lane -> its controlling TLS link, so crossings can be
+    # coloured live by pedestrian signal state (same mechanism as stoplines).
+    crossing_link: dict[str, tuple[str, int]] = {}
+    for tls in net.getTrafficLights():
+        for sig_idx, conns in tls.getLinks().items():
+            for _from_lane, to_lane, _via in conns:
+                if to_lane is None:
+                    continue
+                if to_lane.getEdge().getFunction() == 'crossing':
+                    crossing_link[to_lane.getID()] = (tls.getID(), int(sig_idx))
 
     # TLS programs keyed by junction ID (static inspection before Start)
     tls_programs: dict[str, dict] = {}
@@ -196,20 +209,28 @@ def build_network_geojson(net_xml_path: str) -> dict:
     # plus crossing/sidewalk edges) are tagged 'footpath' so the frontend can
     # render them distinctly from vehicle lanes.
     for edge in net.getEdges():
-        if edge.getFunction() == 'internal':
-            continue
+        fn = edge.getFunction()
+        if fn == 'internal':
+            continue   # vehicle junction-internal lanes — not rendered
         for lane in edge.getLanes():
             shape = lane.getShape()
             if len(shape) < 2:
                 continue
             coords = [list(net.convertXY2LonLat(x, y)) for x, y in shape]
-            ped_only = lane.allows('pedestrian') and not lane.allows('passenger')
+            if fn == 'crossing':
+                ptype = 'crossing'
+            elif fn == 'walkingarea':
+                continue   # graph2sumo walkingareas are 0.1 m stubs — nothing to draw
+            elif lane.allows('pedestrian') and not lane.allows('passenger'):
+                ptype = 'footpath'
+            else:
+                ptype = 'lane'
+            props = {'id': lane.getID(), 'type': ptype}
+            if ptype == 'crossing' and lane.getID() in crossing_link:
+                props['tls_id'], props['sig_idx'] = crossing_link[lane.getID()]
             features.append({
                 'type': 'Feature',
-                'properties': {
-                    'id': lane.getID(),
-                    'type': 'footpath' if ped_only else 'lane',
-                },
+                'properties': props,
                 'geometry': {'type': 'LineString', 'coordinates': coords},
             })
 
@@ -219,6 +240,10 @@ def build_network_geojson(net_xml_path: str) -> dict:
         tls_id = tls.getID()
         for sig_idx, conns in tls.getLinks().items():
             for from_lane, _to_lane, _via in conns:
+                # Pedestrian links (walkingarea/crossing from-lanes) are drawn as
+                # crossings, not vehicle stoplines.
+                if from_lane.getEdge().getFunction() in ('walkingarea', 'crossing'):
+                    continue
                 lane_id = from_lane.getID()
                 if lane_id in seen_lanes:
                     continue

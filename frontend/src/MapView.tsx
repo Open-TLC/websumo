@@ -35,6 +35,13 @@ interface Detector {
   id: string
 }
 
+interface Crossing {
+  from: [number, number]
+  to: [number, number]
+  tlsId?: string
+  sigIdx?: number
+}
+
 interface Generator {
   position: [number, number]
   edge: string
@@ -125,6 +132,7 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
   const mapRef = useRef<maplibregl.Map | null>(null)
   const deckRef = useRef<MapboxOverlay | null>(null)
   const stopLinesRef = useRef<StopLine[]>([])
+  const crossingsRef = useRef<Crossing[]>([])
   const detectorsRef = useRef<Detector[]>([])
   const generatorsRef = useRef<Generator[]>([])
   const selectedRef = useRef<{ kind: string; id: string } | null>(null)
@@ -231,6 +239,21 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
           getTargetPosition: (d) => d.to,
           getColor: (d) => tlsColor(tls[d.tlsId], d.sigIdx),
           getWidth: 3,
+          widthUnits: 'pixels',
+          updateTriggers: { getColor: tls },
+        }),
+        // Pedestrian crossings — thick zebra bars, coloured by ped signal when
+        // a sim runs; pale white when idle.
+        new LineLayer<Crossing>({
+          id: 'crossings',
+          data: crossingsRef.current,
+          getSourcePosition: (d) => d.from,
+          getTargetPosition: (d) => d.to,
+          getColor: (d) =>
+            d.tlsId && tls[d.tlsId] !== undefined
+              ? tlsColor(tls[d.tlsId], d.sigIdx!)
+              : [235, 235, 240, 210],
+          getWidth: 6,
           widthUnits: 'pixels',
           updateTriggers: { getColor: tls },
         }),
@@ -421,6 +444,20 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
             to: coords[1] as [number, number],
             tlsId: f.properties!.tls_id as string,
             sigIdx: f.properties!.sig_idx as number,
+          }
+        })
+
+      // Parse pedestrian crossings into ref for deck.gl use (coloured live by
+      // pedestrian signal state).
+      crossingsRef.current = networkGeoJSON.features
+        .filter((f) => f.properties?.type === 'crossing')
+        .map((f) => {
+          const coords = (f.geometry as GeoJSON.LineString).coordinates
+          return {
+            from: coords[0] as [number, number],
+            to: coords[coords.length - 1] as [number, number],
+            tlsId: f.properties!.tls_id as string | undefined,
+            sigIdx: f.properties!.sig_idx as number | undefined,
           }
         })
 
