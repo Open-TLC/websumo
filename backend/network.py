@@ -192,7 +192,9 @@ def build_network_geojson(net_xml_path: str) -> dict:
             'geometry': {'type': 'Polygon', 'coordinates': [coords]},
         })
 
-    # Lane centerlines
+    # Lane centerlines.  Pedestrian-only lanes (footpaths from the walk graph,
+    # plus crossing/sidewalk edges) are tagged 'footpath' so the frontend can
+    # render them distinctly from vehicle lanes.
     for edge in net.getEdges():
         if edge.getFunction() == 'internal':
             continue
@@ -201,9 +203,13 @@ def build_network_geojson(net_xml_path: str) -> dict:
             if len(shape) < 2:
                 continue
             coords = [list(net.convertXY2LonLat(x, y)) for x, y in shape]
+            ped_only = lane.allows('pedestrian') and not lane.allows('passenger')
             features.append({
                 'type': 'Feature',
-                'properties': {'id': lane.getID(), 'type': 'lane'},
+                'properties': {
+                    'id': lane.getID(),
+                    'type': 'footpath' if ped_only else 'lane',
+                },
                 'geometry': {'type': 'LineString', 'coordinates': coords},
             })
 
