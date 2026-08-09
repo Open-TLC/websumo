@@ -3,10 +3,10 @@ import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { MapboxOverlay } from '@deck.gl/mapbox'
 import { PolygonLayer, LineLayer, ScatterplotLayer } from '@deck.gl/layers'
-import type { Vehicle, Ldm, LdmObject } from './ws'
+import type { Vehicle, Person, Ldm, LdmObject } from './ws'
 
 export interface MapViewHandle {
-  updateStep: (vehicles: Vehicle[], tls: Record<string, string>, detectors: Record<string, boolean>, t: number) => void
+  updateStep: (vehicles: Vehicle[], tls: Record<string, string>, detectors: Record<string, boolean>, persons: Person[], t: number) => void
   setBasemap: (on: boolean) => void
   fitNetwork: (gj: GeoJSON.FeatureCollection) => void
   setSelected: (kind: 'vehicle' | 'tls' | null, id: string | null) => void
@@ -141,8 +141,8 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
   // V2X: fused shared Local Dynamic Map + whether its overlay is on
   const ldmRef = useRef<Ldm | null>(null)
   const ldmOnRef = useRef(false)
-  const lastStepRef = useRef<{ vehicles: Vehicle[]; tls: Record<string, string>; detectors: Record<string, boolean> }>(
-    { vehicles: [], tls: {}, detectors: {} })
+  const lastStepRef = useRef<{ vehicles: Vehicle[]; tls: Record<string, string>; detectors: Record<string, boolean>; persons: Person[] }>(
+    { vehicles: [], tls: {}, detectors: {}, persons: [] })
   const onPickRef = useRef(onPick)
   const onPickAwayRef = useRef(onPickAway)
   const onGenerateRef = useRef(onGenerate)
@@ -154,8 +154,9 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
     vehicles: Vehicle[],
     tls: Record<string, string>,
     detectors: Record<string, boolean>,
+    persons: Person[] = lastStepRef.current.persons,
   ) => {
-    lastStepRef.current = { vehicles, tls, detectors }
+    lastStepRef.current = { vehicles, tls, detectors, persons }
     const sel = selectedRef.current
     const selVehicle = sel?.kind === 'vehicle' ? sel.id : null
 
@@ -257,6 +258,20 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
           widthUnits: 'pixels',
           updateTriggers: { getColor: tls },
         }),
+        // Pedestrians — small warm dots (point agents, not sized bodies).
+        new ScatterplotLayer<Person>({
+          id: 'persons',
+          data: persons,
+          getPosition: (p) => [p[1], p[2]],
+          getRadius: 0.6,
+          radiusUnits: 'meters',
+          radiusMinPixels: 2,
+          radiusMaxPixels: 6,
+          getFillColor: [255, 150, 40, 230],
+          getLineColor: [40, 20, 0, 200],
+          lineWidthMinPixels: 0.5,
+          stroked: true,
+        }),
         new ScatterplotLayer<Generator>({
           id: 'generators',
           data: generatorsRef.current,
@@ -335,8 +350,8 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
         map.fitBounds([[minLon, minLat], [maxLon, maxLat]], { padding: 60, maxZoom: 18 })
       }
     },
-    updateStep(vehicles: Vehicle[], tls: Record<string, string>, detectors: Record<string, boolean>) {
-      renderDeck(vehicles, tls, detectors)
+    updateStep(vehicles: Vehicle[], tls: Record<string, string>, detectors: Record<string, boolean>, persons: Person[]) {
+      renderDeck(vehicles, tls, detectors, persons)
     },
     setFcd(graph) {
       // redraw against the last known positions so the overlay appears at once

@@ -105,10 +105,10 @@ export default function App() {
       }
 
       const sock = sockRef.current
-      sock.onStep = (vehicles, tls, detectors, t, mr) => {
+      sock.onStep = (vehicles, tls, detectors, persons, t, mr) => {
         setSimTime(t)
         if (mr != null) setMaxRate(mr)
-        mapRef.current?.updateStep(vehicles, tls, detectors, t)
+        mapRef.current?.updateStep(vehicles, tls, detectors, persons, t)
         if (resendSelectRef.current) {
           resendSelectRef.current = false
           const sel = selectedRef.current
@@ -191,7 +191,7 @@ export default function App() {
     setSpeed(1)
     setTrafficScale(1.0)
     setMaxRate(null)
-    mapRef.current?.updateStep([], {}, {}, 0)
+    mapRef.current?.updateStep([], {}, {}, [], 0)
     setLdm(null)
     mapRef.current?.setLdm(null)
     clearSelection()
@@ -205,7 +205,7 @@ export default function App() {
     setSpeed(1)
     setTrafficScale(1.0)
     setMaxRate(null)
-    mapRef.current?.updateStep([], {}, {}, 0)
+    mapRef.current?.updateStep([], {}, {}, [], 0)
     setLdm(null)
     mapRef.current?.setLdm(null)
     clearSelection()

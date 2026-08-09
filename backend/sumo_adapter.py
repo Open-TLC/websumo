@@ -303,6 +303,19 @@ def _do_step(net: object, sel: dict | None = None, full: bool = True,
             round(traci.vehicle.getWidth(vid), 2),
             traci.vehicle.getVehicleClass(vid),
         ])
+    # Pedestrians live in a separate person world (traci.person.*), published
+    # as a parallel array: [id, lon, lat, angleDeg, speed].
+    persons = []
+    for pid in traci.person.getIDList():
+        px, py = traci.person.getPosition(pid)
+        plon, plat = net.convertXY2LonLat(px, py)
+        persons.append([
+            pid,
+            round(plon, 7),
+            round(plat, 7),
+            round(traci.person.getAngle(pid), 1),
+            round(traci.person.getSpeed(pid), 2),
+        ])
     tls = {
         tls_id: traci.trafficlight.getRedYellowGreenState(tls_id)
         for tls_id in traci.trafficlight.getIDList()
@@ -310,6 +323,7 @@ def _do_step(net: object, sel: dict | None = None, full: bool = True,
     out = {
         't': t,
         'vehicles': vehicles,
+        'persons': persons,
         'tls': tls,
         'events': events,
         '_empty': empty,
