@@ -27,7 +27,6 @@ export default function App() {
   const [fcdGraph, setFcdGraph] = useState<FcdGraph | null>(null)  // V2X: selected car's ego graph
   const [ldm, setLdm] = useState<Ldm | null>(null)                 // V2X: fused shared LDM
   const [ldmOn, setLdmOn] = useState(false)                        // V2X: LDM overlay toggle
-  const [pedsOn, setPedsOn] = useState(true)                       // pedestrian footpath overlay toggle
   const [genVtypes, setGenVtypes] = useState<string[]>([])   // vTypes offered by the loaded network
   const [genVtype, setGenVtype] = useState('')               // currently selected injection vType
 
@@ -236,14 +235,6 @@ export default function App() {
     })
   }, [])
 
-  const handlePedsToggle = useCallback(() => {
-    setPedsOn((on) => {
-      const next = !on
-      mapRef.current?.setPeds(next)
-      return next
-    })
-  }, [])
-
   const handleDeselect = useCallback(() => {
     setSelected(null)
     setInspectLive(null)
@@ -311,7 +302,6 @@ export default function App() {
         duration={duration}
         basemap={basemap}
         ldmOn={ldmOn}
-        pedsOn={pedsOn}
         logUnread={logUnread}
         genVtypes={genVtypes}
         genVtype={genVtype}
@@ -329,7 +319,6 @@ export default function App() {
         onTrafficScaleChange={handleTrafficScaleChange}
         onBasemapToggle={handleBasemapToggle}
         onLdmToggle={handleLdmToggle}
-        onPedsToggle={handlePedsToggle}
       />
       <LogPanel
         open={logOpen}

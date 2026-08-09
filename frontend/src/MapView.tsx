@@ -8,7 +8,6 @@ import type { Vehicle, Ldm, LdmObject } from './ws'
 export interface MapViewHandle {
   updateStep: (vehicles: Vehicle[], tls: Record<string, string>, detectors: Record<string, boolean>, t: number) => void
   setBasemap: (on: boolean) => void
-  setPeds: (on: boolean) => void
   fitNetwork: (gj: GeoJSON.FeatureCollection) => void
   setSelected: (kind: 'vehicle' | 'tls' | null, id: string | null) => void
   setFcd: (graph: Record<string, unknown> | null) => void
@@ -134,7 +133,6 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
   // V2X: fused shared Local Dynamic Map + whether its overlay is on
   const ldmRef = useRef<Ldm | null>(null)
   const ldmOnRef = useRef(false)
-  const pedsRef = useRef(true)   // footpaths visible by default
   const lastStepRef = useRef<{ vehicles: Vehicle[]; tls: Record<string, string>; detectors: Record<string, boolean> }>(
     { vehicles: [], tls: {}, detectors: {} })
   const onPickRef = useRef(onPick)
@@ -290,13 +288,6 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
       const map = mapRef.current
       if (map?.getLayer('basemap-l')) {
         map.setPaintProperty('basemap-l', 'raster-opacity', on ? 1 : 0)
-      }
-    },
-    setPeds(on: boolean) {
-      pedsRef.current = on
-      const map = mapRef.current
-      if (map?.getLayer('footpaths')) {
-        map.setLayoutProperty('footpaths', 'visibility', on ? 'visible' : 'none')
       }
     },
     fitNetwork(gj: GeoJSON.FeatureCollection) {
@@ -486,18 +477,17 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
         filter: ['==', ['get', 'type'], 'lane'],
         paint: { 'line-color': '#5a5a8a', 'line-width': 1.5, 'line-opacity': 0.9 },
       })
-      // Pedestrian footpaths (walk graph) — dashed tan, toggled via setPeds().
+      // Pedestrian footpaths (walk graph) — soft continuous tint, always shown.
       map.addLayer({
         id: 'footpaths',
         type: 'line',
         source: SOURCE,
         filter: ['==', ['get', 'type'], 'footpath'],
-        layout: { visibility: pedsRef.current ? 'visible' : 'none' },
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-          'line-color': '#c8a15a',
+          'line-color': '#cdb58a',
           'line-width': 2,
-          'line-opacity': 0.85,
-          'line-dasharray': [2, 1.5],
+          'line-opacity': 0.5,
         },
       })
       map.addLayer({

@@ -9,7 +9,6 @@ interface Props {
   duration: number
   basemap: boolean
   ldmOn: boolean
-  pedsOn: boolean
   logUnread: number
   genVtypes: string[]
   genVtype: string
@@ -27,7 +26,6 @@ interface Props {
   onTrafficScaleChange: (v: number) => void
   onBasemapToggle: () => void
   onLdmToggle: () => void
-  onPedsToggle: () => void
 }
 
 const btn = (label: string, onClick: () => void, disabled = false, accent = false) => (
@@ -65,10 +63,10 @@ const DURATIONS = [
 ]
 
 export function Controls({
-  scenarios, scenario, simState, simTime, speed, maxRate, trafficScale, duration, basemap, ldmOn, pedsOn,
+  scenarios, scenario, simState, simTime, speed, maxRate, trafficScale, duration, basemap, ldmOn,
   logUnread, genVtypes, genVtype, onGenVtypeChange, onToggleLog,
   onScenarioChange, onDurationChange, onLoad, onStart, onPause, onResume, onStop, onReset,
-  onSpeedChange, onTrafficScaleChange, onBasemapToggle, onLdmToggle, onPedsToggle,
+  onSpeedChange, onTrafficScaleChange, onBasemapToggle, onLdmToggle,
 }: Props) {
   const idle = simState === 'idle'
   const running = simState === 'running'
@@ -126,18 +124,6 @@ export function Controls({
             }}
           >
             LDM
-          </button>
-          <button
-            onClick={onPedsToggle}
-            title="Pedestrian footpaths (walk graph)"
-            style={{
-              padding: '3px 10px', border: `1px solid ${pedsOn ? '#c8a15a' : '#3a3a6a'}`,
-              borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 600,
-              background: pedsOn ? '#2a2214' : '#1a1a30',
-              color: pedsOn ? '#e0b96a' : '#667',
-            }}
-          >
-            PED
           </button>
           <button
             onClick={onBasemapToggle}

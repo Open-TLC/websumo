@@ -236,8 +236,12 @@ def build_network_geojson(net_xml_path: str) -> dict:
                     'geometry': {'type': 'LineString', 'coordinates': coords},
                 })
 
-    # Junction centre points
+    # Junction centre points.  Walk-graph nodes (walk_*) are skipped — their
+    # dots read as spurious "connectors" strung along the footpaths; the
+    # continuous footpath lines already convey the network.
     for node in net.getNodes():
+        if node.getID().startswith('walk_'):
+            continue
         x, y = node.getCoord()
         lon, lat = net.convertXY2LonLat(x, y)
         features.append({
