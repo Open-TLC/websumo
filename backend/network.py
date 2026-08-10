@@ -226,13 +226,28 @@ def build_network_geojson(net_xml_path: str) -> dict:
             else:
                 ptype = 'lane'
             props = {'id': lane.getID(), 'type': ptype}
-            if ptype == 'crossing' and lane.getID() in crossing_link:
-                props['tls_id'], props['sig_idx'] = crossing_link[lane.getID()]
             features.append({
                 'type': 'Feature',
                 'properties': props,
                 'geometry': {'type': 'LineString', 'coordinates': coords},
             })
+            # For a signalised crossing, emit a separate perpendicular signal
+            # bar at the kerb (like a vehicle stopline) rather than colouring
+            # the whole crossing area.  Oriented across the crossing lane, i.e.
+            # perpendicular to the pedestrian movement.
+            if ptype == 'crossing' and lane.getID() in crossing_link:
+                tls_id, sig_idx = crossing_link[lane.getID()]
+                bar = _cross_lane_coords(shape, 0.6, net, half_width=2.0)
+                if bar:
+                    features.append({
+                        'type': 'Feature',
+                        'properties': {
+                            'type': 'ped_signal',
+                            'tls_id': tls_id,
+                            'sig_idx': sig_idx,
+                        },
+                        'geometry': {'type': 'LineString', 'coordinates': bar},
+                    })
 
     # TLS stop lines — one per incoming lane, mapped to its signal index
     seen_lanes: set[str] = set()

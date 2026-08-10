@@ -133,6 +133,7 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
   const deckRef = useRef<MapboxOverlay | null>(null)
   const stopLinesRef = useRef<StopLine[]>([])
   const crossingsRef = useRef<Crossing[]>([])
+  const pedSignalsRef = useRef<StopLine[]>([])
   const detectorsRef = useRef<Detector[]>([])
   const generatorsRef = useRef<Generator[]>([])
   const selectedRef = useRef<{ kind: string; id: string } | null>(null)
@@ -243,18 +244,25 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
           widthUnits: 'pixels',
           updateTriggers: { getColor: tls },
         }),
-        // Pedestrian crossings — thick zebra bars, coloured by ped signal when
-        // a sim runs; pale white when idle.
+        // Pedestrian crossing AREA — neutral zebra marking (not signal-coloured).
         new LineLayer<Crossing>({
           id: 'crossings',
           data: crossingsRef.current,
           getSourcePosition: (d) => d.from,
           getTargetPosition: (d) => d.to,
-          getColor: (d) =>
-            d.tlsId && tls[d.tlsId] !== undefined
-              ? tlsColor(tls[d.tlsId], d.sigIdx!)
-              : [235, 235, 240, 210],
+          getColor: [225, 225, 232, 190],
           getWidth: 6,
+          widthUnits: 'pixels',
+        }),
+        // Pedestrian SIGNAL — a bar perpendicular to the crossing at the kerb,
+        // coloured by the ped signal (same convention as vehicle stoplines).
+        new LineLayer<StopLine>({
+          id: 'ped-signals',
+          data: pedSignalsRef.current,
+          getSourcePosition: (d) => d.from,
+          getTargetPosition: (d) => d.to,
+          getColor: (d) => tlsColor(tls[d.tlsId], d.sigIdx),
+          getWidth: 4,
           widthUnits: 'pixels',
           updateTriggers: { getColor: tls },
         }),
@@ -462,8 +470,9 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
           }
         })
 
-      // Parse pedestrian crossings into ref for deck.gl use (coloured live by
-      // pedestrian signal state).
+      // Pedestrian crossings: the crossing AREA (neutral zebra marking) and,
+      // separately, the perpendicular signal bar (coloured live by the ped
+      // signal, like a vehicle stopline).
       crossingsRef.current = networkGeoJSON.features
         .filter((f) => f.properties?.type === 'crossing')
         .map((f) => {
@@ -471,8 +480,17 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
           return {
             from: coords[0] as [number, number],
             to: coords[coords.length - 1] as [number, number],
-            tlsId: f.properties!.tls_id as string | undefined,
-            sigIdx: f.properties!.sig_idx as number | undefined,
+          }
+        })
+      pedSignalsRef.current = networkGeoJSON.features
+        .filter((f) => f.properties?.type === 'ped_signal')
+        .map((f) => {
+          const coords = (f.geometry as GeoJSON.LineString).coordinates
+          return {
+            from: coords[0] as [number, number],
+            to: coords[1] as [number, number],
+            tlsId: f.properties!.tls_id as string,
+            sigIdx: f.properties!.sig_idx as number,
           }
         })
 
