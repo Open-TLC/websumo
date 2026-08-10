@@ -231,23 +231,28 @@ def build_network_geojson(net_xml_path: str) -> dict:
                 'properties': props,
                 'geometry': {'type': 'LineString', 'coordinates': coords},
             })
-            # For a signalised crossing, emit a separate perpendicular signal
-            # bar at the kerb (like a vehicle stopline) rather than colouring
-            # the whole crossing area.  Oriented across the crossing lane, i.e.
-            # perpendicular to the pedestrian movement.
+            # For a signalised crossing, emit a perpendicular signal bar at BOTH
+            # ends of the crossing (like the pair of signal heads at a real
+            # crossing — both show the same state), rather than colouring the
+            # whole area.  Oriented across the crossing lane, i.e. perpendicular
+            # to the pedestrian movement, like a vehicle stopline.
             if ptype == 'crossing' and lane.getID() in crossing_link:
                 tls_id, sig_idx = crossing_link[lane.getID()]
-                bar = _cross_lane_coords(shape, 0.6, net, half_width=2.0)
-                if bar:
-                    features.append({
-                        'type': 'Feature',
-                        'properties': {
-                            'type': 'ped_signal',
-                            'tls_id': tls_id,
-                            'sig_idx': sig_idx,
-                        },
-                        'geometry': {'type': 'LineString', 'coordinates': bar},
-                    })
+                length = lane.getLength()
+                offsets = {round(min(0.6, length / 2), 2),
+                           round(max(0.6, length - 0.6), 2)}
+                for off in offsets:
+                    bar = _cross_lane_coords(shape, off, net, half_width=2.0)
+                    if bar:
+                        features.append({
+                            'type': 'Feature',
+                            'properties': {
+                                'type': 'ped_signal',
+                                'tls_id': tls_id,
+                                'sig_idx': sig_idx,
+                            },
+                            'geometry': {'type': 'LineString', 'coordinates': bar},
+                        })
 
     # TLS stop lines — one per incoming lane, mapped to its signal index
     seen_lanes: set[str] = set()
