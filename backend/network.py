@@ -210,21 +210,32 @@ def build_network_geojson(net_xml_path: str) -> dict:
     # render them distinctly from vehicle lanes.
     for edge in net.getEdges():
         fn = edge.getFunction()
-        if fn == 'internal':
-            continue   # vehicle junction-internal lanes — not rendered
         for lane in edge.getLanes():
             shape = lane.getShape()
             if len(shape) < 2:
                 continue
-            coords = [list(net.convertXY2LonLat(x, y)) for x, y in shape]
-            if fn == 'crossing':
+            # A bicycle-only lane (approach/exit stub or the internal cycle-track
+            # crossing stripe) — rendered distinctly from footpaths and car lanes.
+            bike_only = (lane.allows('bicycle')
+                         and not lane.allows('passenger')
+                         and not lane.allows('pedestrian'))
+            if fn == 'internal':
+                # Vehicle junction-internal (bezier) lanes are not drawn, but the
+                # bicycle crossing stripe IS an internal lane worth showing.
+                if not bike_only:
+                    continue
+                ptype = 'cyclelane'
+            elif fn == 'crossing':
                 ptype = 'crossing'
             elif fn == 'walkingarea':
                 continue   # graph2sumo walkingareas are 0.1 m stubs — nothing to draw
+            elif bike_only:
+                ptype = 'cyclelane'
             elif lane.allows('pedestrian') and not lane.allows('passenger'):
                 ptype = 'footpath'
             else:
                 ptype = 'lane'
+            coords = [list(net.convertXY2LonLat(x, y)) for x, y in shape]
             props = {'id': lane.getID(), 'type': ptype}
             features.append({
                 'type': 'Feature',

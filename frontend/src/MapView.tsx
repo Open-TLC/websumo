@@ -115,6 +115,7 @@ function vehicleColor(vclass: string): [number, number, number, number] {
     case 'tram':
     case 'rail_urban': return [60, 180, 255, 240]
     case 'bus':        return [80, 210, 100, 240]
+    case 'bicycle':    return [230, 60, 60, 245]   // red — distinct from car orange
     case 'truck':
     case 'trailer':    return [210, 120, 40, 240]
     default:           return [255, 165, 40, 240]
@@ -558,6 +559,20 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
           'line-color': '#cdb58a',
           'line-width': 2,
           'line-opacity': 0.5,
+        },
+      })
+      // Bicycle lanes / cycle-track crossings — dashed red, always shown.
+      map.addLayer({
+        id: 'cyclelanes',
+        type: 'line',
+        source: SOURCE,
+        filter: ['==', ['get', 'type'], 'cyclelane'],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': '#d23c3c',
+          'line-width': 2,
+          'line-opacity': 0.8,
+          'line-dasharray': [2, 1.5],
         },
       })
       map.addLayer({
