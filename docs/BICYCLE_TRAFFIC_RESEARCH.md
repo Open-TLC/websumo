@@ -6,6 +6,51 @@
 
 ---
 
+> ## ⚠️ SUPERSEDED — read `BICYCLE_SUMO_DEEP_RESEARCH.md` first
+>
+> This was a first, single-agent pass written largely from prior knowledge. A
+> later source-verified pass (`docs/BICYCLE_SUMO_DEEP_RESEARCH.md`, 2026-08-11)
+> checked every claim against the live SUMO docs, the GitHub issue tracker, and
+> the actual graph/codebase, and **corrected the following** — treat the deep
+> research as authoritative wherever the two disagree:
+>
+> 1. **The cycleway geometry is NOT loaded today.** The 6 `OsmCycleway` objects
+>    live only in `map_extraction_vector.ttl`, which the pipeline's `_ttl_files`
+>    loader skips (it takes the newest `map_extraction*.ttl` = `map_extraction.ttl`).
+>    Bike queries return 0 rows until a loader fix (a new **Phase 0**). So
+>    "the graph already contains 6 OsmCycleway objects" is true of the repo,
+>    false of the loaded graph.
+> 2. **The missing-predicate list below is wrong.** `oct:onApproach`,
+>    `oct:laneDirection`, `oct:hasStopLine`, `oct:vehicleType`,
+>    `oct:withinZebraCrossing`, `oct:segmentIndex` do **not** exist on the
+>    cycleways. What exists: arms carry `oct:approachesIntersection` /
+>    `oct:departsIntersection` / `oct:bearing`; stripes carry
+>    `oct:cyclewayCrossing true` / `oct:segregated true` / `oct:crossingWayOnRoad`.
+>    Approach-vs-crossing is therefore **explicit** (via `oct:cyclewayCrossing`),
+>    not something to infer from geometry.
+> 3. **Bikes must NOT cross on a `function="crossing"` edge.** SUMO `<crossing>`
+>    elements are pedestrian-only (no `vClass`/`allow` attribute) and crossing
+>    junctions forbid vehicle `incLanes`. The `:crossing_..._bc0` design below is
+>    wrong in mechanism — a bike crosses on a **normal short vehicle edge**
+>    (`bikecross_*`, `allow="bicycle"`) wired to the pedestrian crossing's
+>    `linkIndex`.
+> 4. **Signal field is `oct:cyclistMinimumGreen`** (extracted `cyclist_min_green`),
+>    not `cyclistMinimumGreenTime` (renamed upstream).
+> 5. **Speed:** realistic riding speed is `desiredMaxSpeed` (20 km/h); the
+>    bicycle `maxSpeed` default is 50 km/h. Don't conflate the two.
+> 6. **Citations:** the verified literature set is the SimRa lineage
+>    (Karakaya 2022 / 2023), the Bosch RBDM (Ostendorf 2025), Roosta 2023, and
+>    Kaths & Roosta 2023 (both SUMO Conf. Vol. 4), and Grigoropoulos 2019.
+>    "Twaddle 2014/2016", issue "#10039", and the "sumo-rl / Copenhagen / Berlin"
+>    project references below could not be verified — do not cite them without
+>    checking. (Issue #16643 and Roosta 2023 *are* real.)
+>
+> Everything else here — bikes-are-vehicles-not-pedestrians, share the
+> pedestrian signal group, segregated crossings, the tram-lane pattern — is
+> correct and confirmed.
+
+---
+
 ## Executive Summary
 
 SUMO has native bicycle support (`vClass="bicycle"`) that is **functionally mature but underdeveloped**. Cyclists are modeled as slow vehicles (default 5.56 m/s) using the standard vehicle routing engine, not a specialized movement model. Unlike pedestrians (which have a dedicated simulation subsystem), bicycles share infrastructure with vehicles and are subject to the same car-following logic, simply with different speed profiles.
