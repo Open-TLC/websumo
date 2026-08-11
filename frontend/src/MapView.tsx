@@ -267,7 +267,9 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
           widthUnits: 'pixels',
           updateTriggers: { getColor: tls },
         }),
-        // Pedestrians — small warm dots (point agents, not sized bodies).
+        // Pedestrians — small violet dots (point agents, not sized bodies).
+        // Violet reads as "people" and stays distinct from cars (orange),
+        // bikes (red), trams (blue), buses (green) and detectors (cyan).
         new ScatterplotLayer<Person>({
           id: 'persons',
           data: persons,
@@ -276,8 +278,8 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
           radiusUnits: 'meters',
           radiusMinPixels: 2,
           radiusMaxPixels: 6,
-          getFillColor: [255, 150, 40, 230],
-          getLineColor: [40, 20, 0, 200],
+          getFillColor: [170, 100, 240, 240],
+          getLineColor: [40, 20, 60, 200],
           lineWidthMinPixels: 0.5,
           stroked: true,
         }),
