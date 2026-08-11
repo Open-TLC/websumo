@@ -51,7 +51,7 @@ def _ground_lane(scenario: str, lane_id: str | None) -> str | None:
 # The graph has no SignalGroup abstraction (269's signal_groups are empty), but
 # each Connection is keyed by (fromLane, toDepartureLane) — exactly what SUMO's
 # getControlledLinks gives per link index. Built once at start into _LINK_GROUND.
-OCT_GRAPH_DIR = os.environ.get('OCT_GRAPH_DIR', '/repos/helsinki_intersections/intersections')
+OCT_GRAPH_DIR = os.environ.get('OCT_GRAPH_DIR', '')  # optional; path to intersection graphs for IRI grounding
 _LINK_GROUND: dict = {}   # (tlsId, linkIndex) -> {fromLane, toLane, onConnection}
 
 
