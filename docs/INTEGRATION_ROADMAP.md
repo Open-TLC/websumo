@@ -1,6 +1,13 @@
 # WebSUMO + Open Controller — Integration Roadmap
 
-*Status: planning / pre-integration. Last updated: 2026-07-03.*
+*Status: direction decided (Option 3). Last updated: 2026-08-12.*
+
+> **Decision (2026-08-12): Option 3.** OC's simengine owns the simulation and
+> publishes `sim.{scenario}.state`; WebSUMO subscribes and renders, and does not
+> run SUMO in integrated mode. WebSUMO exposes the `sim.{scenario}.*` interface;
+> OC keeps its own detector/signal subjects to itself. Options 2 and 4, and the
+> `detector.control.*` / `group.control.*` subject bridge referenced below, were
+> considered but are not planned.
 
 ---
 
@@ -13,10 +20,10 @@ and `.log`); a FastAPI WebSocket relay forwards that to the browser and
 forwards browser commands (`sim.{scenario}.cmd.*`) back. So **Option 1 below
 (a NATS publishing layer) is already done** — WebSUMO is a NATS
 publisher/subscriber, not a TraCI socket owner. The Open Controller (OC) is a
-separate NATS-native project. The remaining integration work is the OC-facing
-subject bridge (detector republish + signal-command intake — TODO item 2), not
-the transport, which is why the option analysis below is now about *who owns
-the SUMO process*, with the NATS substrate taken as given.
+separate NATS-native project. The direction is now decided (Option 3, above):
+OC owns the simulation and publishes `sim.{scenario}.state`; WebSUMO subscribes
+and renders. The option analysis below is kept for the record of *who owns the
+SUMO process*, with the NATS substrate taken as given.
 
 > The subsections below predate the migration and are kept for the option
 > analysis (who should own the simulation). Where they say `session.py`, read
@@ -179,10 +186,10 @@ use cases. Treat it as a prototype, not a production architecture.
 | Step | Action | Status |
 |------|--------|--------|
 | 1 | Add NATS publishing to WebSUMO (Option 1) | ✅ done |
-| 2 | Define and freeze the NATS subject schema and command protocol | in progress — `sim.{scenario}.*` shipped; OC-facing `detector.control.*` / `group.control.*` still to confirm against OC (TODO item 2) |
+| 2 | Define and freeze the NATS subject schema and command protocol | ✅ `sim.{scenario}.*` shipped — the interface OC publishes/subscribes against |
 | 2b | *(Optional prototype)* Import OC control engine as an in-process library | only if a NATS-free prototype is wanted |
-| 3 | Align with OC team on simulation-master ownership (Option 2 vs 3 vs 4) | pending OC roadmap discussion |
-| 4 | Implement agreed integration pattern | after steps 2 + 3 |
+| 3 | Choose simulation-master ownership (Option 2 vs 3 vs 4) | ✅ **decided 2026-08-12 — Option 3** (OC owns the sim; WebSUMO subscribes) |
+| 4 | Implement: OC publishes `sim.{scenario}.state`; WebSUMO renders it | OC-side work |
 
 The guiding principle: **interfaces first, integration second.** A stable NATS
 topic schema agreed between WebSUMO and OC is worth more than any amount of

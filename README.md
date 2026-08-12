@@ -140,33 +140,21 @@ Any NATS client (OC, recorder, custom tool) can subscribe to `sim.{scenario}.sta
 or publish commands to `sim.{scenario}.cmd.*` alongside the browser. Commands are
 fire-and-forget; they are buffered and applied before the next simulation step.
 
-### Planned (for Open Controller integration)
+### Open Controller integration
 
-The command set is intentionally minimal — new subjects are added as needed
-(each is a few lines in `sumo_adapter.py`'s `on_cmd` handler). Detector
-occupancy is already read every step and included in the state message; the
-remaining increment for a drop-in replacement of OC's
-`simengine_integrated.py`:
+Integrated mode: **OC owns the simulation.** OC's simengine runs SUMO and
+publishes state to `sim.{scenario}.state` (with `.log` / `.end`); WebSUMO
+subscribes and renders it, and does **not** run SUMO in this mode. Browser
+commands go out on `sim.{scenario}.cmd.*`. The `sumo_adapter.py` in this repo is
+WebSUMO's standalone (no-OC) simengine.
 
-```
-detector.control.{det_id}   ← adapter republishes detector occupancy in OC's
-                              format: {"id": ..., "loop_on": bool, "tstamp": ISO8601}
-                              (OC's control engine subscribes to these)
-group.control.{group_id}    ← OC publishes its computed signal states here;
-                              adapter subscribes and applies them via
-                              trafficlight.setRedYellowGreenState
-```
+OC keeps its own detector and signal subjects to itself; WebSUMO does not
+republish detectors or drive signals. (An earlier draft specified the adapter
+republishing `detector.control.*` and applying `group.control.*` as the planned
+contract — an approach that is not planned.)
 
-**Not yet implemented, and the names above are provisional.** Unlike our
-`sim.{scenario}.*` subjects, OC's detector/group subjects are *flat* (not
-scenario-scoped), so a single broker serves one scenario at a time — running
-two scenarios against one OC would cross-talk. Confirm the exact subject
-spellings and payload shapes against OC's real code before building; `group.*`
-vs the older `group.status.*` naming in particular is unverified here.
-
-A generic request-reply layer (`sumo.{sim}.get/set.{domain}.{var}`) was
-researched (see `docs/NATS_TRACI_REPLACEMENT_RESEARCH.md`) but is deliberately
-not built — specific, validated subjects are added incrementally instead.
+A generic request-reply layer (`sumo.{sim}.get/set.{domain}.{var}`) was also
+researched (see `docs/NATS_TRACI_REPLACEMENT_RESEARCH.md`) but is not built.
 
 ## Development (hot reload)
 

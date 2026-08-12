@@ -5,25 +5,20 @@ priority; effort estimates from the linked research docs.
 
 ## 1. Open Controller integration
 
-Make the adapter a drop-in replacement for OC's `simengine_integrated.py`.
-Detector occupancy is already read every step — only the republish and the
-command path are missing.
+Integrated mode: **OC owns the simulation.** OC's simengine runs SUMO and
+publishes state to `sim.{scenario}.state`; WebSUMO subscribes and renders it —
+it does **not** run SUMO in this mode. `sumo_adapter.py` stays as WebSUMO's
+standalone (no-OC) simengine.
 
-- Republish detectors on `detector.control.{det_id}` in OC's format:
-  `{"id", "loop_on", "tstamp"}` (~10 lines)
-- Subscribe to OC's signal commands (`group.control.*`), apply via
-  `trafficlight.setRedYellowGreenState` before next step
-- **First: confirm subject names + payloads against OC's real
-  `simengine_integrated.py` / `clockwork.py`** — `group.control` vs
-  `group.status` is unverified, and OC's subjects are flat (not
-  `sim.{scenario}.*`-scoped), so one broker = one scenario. Decide whether to
-  adopt OC's flat namespace or bridge to scenario-scoped subjects.
-- Validate detector IDs in `oc_controller.json` against `{scenario}.detectors.xml`
-  at startup; log mismatches
-- End-to-end test: OC control engine driving signals on fi.helsinki.269,
-  visible in the viewer
+OC keeps its own detector and signal subjects to itself; WebSUMO does not
+republish detectors or drive signals. (An earlier note here had the adapter be a
+drop-in for OC's `simengine_integrated.py` — republishing `detector.control.*`
+and applying `group.control.*` — an approach that is not planned.)
 
-**Research:** `docs/NATS_TRACI_REPLACEMENT_RESEARCH.md`, `docs/INTEGRATION_ROADMAP.md`
+- End-to-end test: OC's simengine driving fi.helsinki.269, visible in the viewer,
+  both on the same NATS broker.
+
+**Research:** `docs/INTEGRATION_ROADMAP.md`, `docs/NATS_TRACI_REPLACEMENT_RESEARCH.md`
 
 ## 2. Element inspector — extend beyond vehicles + TLS
 
