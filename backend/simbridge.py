@@ -55,7 +55,8 @@ class SimBridge:
     """
 
     def __init__(self, scenario: str, nats_url: str = "nats://localhost:4222",
-                 on_command: Optional[Callable[[str, Dict], None]] = None):
+                 on_command: Optional[Callable[[str, Dict], None]] = None,
+                 net_xml_path: Optional[str] = None):
         """Initialize the bridge.
 
         Args:
@@ -65,10 +66,25 @@ class SimBridge:
             on_command: optional callback(cmd, data) invoked when a command arrives.
                        If provided, commands are passed here instead of queued.
                        Runs in the bridge's async thread; must be fast or re-entrant.
+            net_xml_path: optional path to the scenario's .net.xml. When given, the
+                       bridge answers `sim.{scenario}.net` requests with the gzipped
+                       file, so WebSUMO can render the network without a local copy
+                       (integrated mode needs nothing on the WebSUMO host's disk).
         """
         self.scenario = scenario
         self.nats_url = nats_url
         self.on_command = on_command
+
+        # Read + gzip the network once (static per scenario). 269 is ~125 KB raw,
+        # ~28 KB gzipped — well under the 1 MB core-NATS payload cap.
+        self._net_gz: Optional[bytes] = None
+        if net_xml_path:
+            try:
+                import gzip
+                with open(net_xml_path, "rb") as f:
+                    self._net_gz = gzip.compress(f.read())
+            except OSError as e:
+                logger.warning(f"SimBridge: could not read net.xml {net_xml_path}: {e}")
 
         self._nc: Optional[nats.aio.client.Client] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -121,10 +137,24 @@ class SimBridge:
                     self._cmd_queue.put((cmd, data))
 
             await self._nc.subscribe(f"sim.{self.scenario}.cmd.*", cb=on_cmd_msg)
+
+            # Serve the network on request (integrated mode: WebSUMO renders it
+            # without a local .net.xml). Reply is the gzipped file bytes.
+            if self._net_gz is not None:
+                async def on_net_request(msg: nats.aio.msg.Msg) -> None:
+                    await msg.respond(self._net_gz)
+                await self._nc.subscribe(f"sim.{self.scenario}.net", cb=on_net_request)
+
             self._ready_event.set()
 
-            # Keep the loop running until stopped
-            await self._stop_event.wait()
+            # Keep the loop alive until close(). `_stop_event` is a threading.Event
+            # set from the main thread — it can't be awaited, so poll it.
+            while not self._stop_event.is_set():
+                await asyncio.sleep(0.1)
+            try:
+                await self._nc.drain()
+            except Exception:
+                pass
         except Exception as e:
             self._error = e
             logger.exception("SimBridge async init error")

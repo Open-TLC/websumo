@@ -1,13 +1,17 @@
 import sys
 sys.path.insert(0, '/usr/local/lib/python3.14/site-packages/sumo/tools')
 
+import asyncio
 import glob
+import gzip
 import json
 import os
 import pathlib
 import re
 import signal
 import subprocess
+import tempfile
+import time
 
 import nats as nats_client
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -65,10 +69,45 @@ def _kill_orphans() -> None:
 _kill_orphans()
 
 
+# Scenarios published live over NATS (integrated mode: OC owns the sim, no local
+# files on this host). scenario -> last-seen monotonic time; pruned by staleness.
+_live_scenarios: dict[str, float] = {}
+_LIVE_TTL_S = 15.0
+_nc_app: 'nats_client.aio.client.Client | None' = None
+
+
+@app.on_event('startup')
+async def _connect_nats() -> None:
+    """App-level NATS client: discover live scenarios + fetch networks on demand.
+
+    Scenario ids contain dots (fi.helsinki.269), so a `.state` suffix can't be
+    matched with a middle `*` wildcard — subscribe to `sim.>` and filter. The
+    callback only parses the subject (no payload decode), so the 10 Hz state
+    stream is cheap to track."""
+    global _nc_app
+    try:
+        _nc_app = await nats_client.connect(NATS_URL)
+
+        async def on_any(msg: 'nats_client.aio.msg.Msg') -> None:
+            subj = msg.subject
+            if subj.startswith('sim.') and subj.endswith('.state'):
+                _live_scenarios[subj[len('sim.'):-len('.state')]] = time.monotonic()
+
+        await _nc_app.subscribe('sim.>', cb=on_any)
+    except Exception:
+        _nc_app = None   # NATS down at startup — disk-only mode still works
+
+
+def _live_scenario_ids() -> list[str]:
+    now = time.monotonic()
+    return [s for s, seen in _live_scenarios.items() if now - seen < _LIVE_TTL_S]
+
+
 @api.get('/scenarios')
 def list_scenarios() -> list[str]:
-    cfgs = sorted(glob.glob(f'{SCENARIOS_DIR}/*.sumocfg'))
-    return [pathlib.Path(c).stem for c in cfgs]
+    """Local scenarios (built .sumocfg on disk) ∪ scenarios live on NATS."""
+    local = {pathlib.Path(c).stem for c in glob.glob(f'{SCENARIOS_DIR}/*.sumocfg')}
+    return sorted(local | set(_live_scenario_ids()))
 
 
 # `scenario` is interpolated into filesystem paths, subprocess argv and NATS
@@ -85,6 +124,37 @@ def _is_valid_scenario(scenario: str) -> bool:
 def _require_scenario(scenario: str) -> None:
     if not _is_valid_scenario(scenario):
         raise HTTPException(404, f'Unknown scenario: {scenario}')
+
+
+def _require_safe_name(scenario: str) -> None:
+    """Regex-only guard (no path traversal / injection). Used where availability
+    is proven another way — e.g. the network endpoint, which then confirms a
+    scenario exists by finding its .net.xml on disk or fetching it over NATS."""
+    if not _SCENARIO_RE.match(scenario):
+        raise HTTPException(404, f'Invalid scenario: {scenario}')
+
+
+async def _fetch_net_over_nats(scenario: str) -> pathlib.Path | None:
+    """Request the scenario's .net.xml over NATS and cache it to a temp file.
+
+    Integrated mode: OC owns the scenario and answers `sim.{scenario}.net` with
+    the gzipped network (see simbridge.py). Returns the temp path, or None if no
+    responder / NATS is down."""
+    if _nc_app is None:
+        return None
+    tmp = pathlib.Path(tempfile.gettempdir()) / f'websumo_net_{scenario}.net.xml'
+    if tmp.exists():
+        return tmp
+    try:
+        reply = await _nc_app.request(f'sim.{scenario}.net', b'', timeout=5.0)
+    except Exception:
+        return None   # no responder within timeout
+    try:
+        xml = gzip.decompress(reply.data)
+    except OSError:
+        xml = reply.data   # tolerate an uncompressed responder
+    tmp.write_bytes(xml)
+    return tmp
 
 
 def _run_load_check(scenario: str) -> None:
@@ -106,13 +176,18 @@ def _run_load_check(scenario: str) -> None:
 
 
 @api.get('/network/{scenario}')
-def get_network(scenario: str) -> dict:
-    _require_scenario(scenario)
-    net_xml = pathlib.Path(SCENARIOS_DIR) / f'{scenario}.net.xml'
-    if not net_xml.exists():
-        raise HTTPException(404, f'No net.xml for scenario: {scenario}')
-    _run_load_check(scenario)
-    return build_network_geojson(str(net_xml))
+async def get_network(scenario: str) -> dict:
+    _require_safe_name(scenario)
+    local = pathlib.Path(SCENARIOS_DIR) / f'{scenario}.net.xml'
+    if local.exists():
+        _run_load_check(scenario)
+        return build_network_geojson(str(local))
+    # Integrated mode: no local file — fetch the network over NATS from the
+    # simengine that owns it. No load-check (we don't have the .sumocfg here).
+    net = await _fetch_net_over_nats(scenario)
+    if net is None:
+        raise HTTPException(404, f'No net.xml on disk or via NATS for scenario: {scenario}')
+    return build_network_geojson(str(net))
 
 
 class StartRequest(BaseModel):
