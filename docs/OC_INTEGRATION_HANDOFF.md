@@ -3,7 +3,10 @@
 **Date:** 2026-08-11  
 **Status:** Ready for OC team review and integration.
 
-This package contains everything needed for Open Controller to integrate WebSUMO visualization into its simengine_integrated.py.
+This package contains everything needed for Open Controller to integrate WebSUMO
+visualization into its simengine — whichever module owns the SUMO step loop
+(`simengine.py`, already async and NATS-connected, is the natural first target;
+`simengine_integrated.py` is the standalone entry point).
 
 ---
 

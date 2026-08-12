@@ -1,8 +1,14 @@
 # Integrating WebSUMO with Open Controller
 
-**Target:** Enable WebSUMO's web UI to visualize Open Controller's integrated-mode simulations (simengine_integrated.py) over NATS, without any TraCI socket ownership or `--num-clients` barriers.
+**Target:** Enable WebSUMO's web UI to visualize Open Controller's simulations over NATS, without any TraCI socket ownership or `--num-clients` barriers.
 
 **Outcome:** WebSUMO subscribers see the same live simulation as OC's control engine, in a browser-based UI instead of sumo-gui.
+
+> **Which OC engine to integrate.** The bridge attaches to whichever OC module
+> owns the SUMO step loop. `simengine.py` (already async and NATS-connected) is
+> the natural first target; `simengine_integrated.py` is the standalone
+> integrated-mode entry point. Filenames below are illustrative — apply the same
+> two calls (publish state, drain commands) wherever OC's step loop lives.
 
 ---
 
@@ -14,7 +20,8 @@ WebSUMO provides two components:
 
 2. **simbridge.py** — A Python module that handles all NATS I/O for you. Your simengine imports it, calls two simple methods per step, and the rest is automatic.
 
-This guide walks through the minimal changes needed in OC's `services/simengine/src/simengine_integrated.py`.
+This guide walks through the minimal changes needed in OC's simengine (the module
+that owns the SUMO step loop — see the note above).
 
 ---
 

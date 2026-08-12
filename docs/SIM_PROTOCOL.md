@@ -34,12 +34,12 @@ Example scenario IDs: `fi.helsinki.269`, `test.intersection`, etc. — any strin
   "v": 1,
   "t": 123.4,
   "vehicles": [
-    ["veh0", 60.1234567, 25.5678901, 90.0, 5.0, 2.0, "passenger"],
-    ["veh1", 60.1234500, 25.5679000, 45.5, 5.0, 2.0, "truck"]
+    ["veh0", 24.9384567, 60.1699001, 90.0, 5.0, 2.0, "passenger"],
+    ["veh1", 24.9385000, 60.1699100, 45.5, 5.0, 2.0, "truck"]
   ],
   "persons": [
-    ["ped0", 60.1234550, 25.5679050, 180.0, 1.2],
-    ["bike1", 60.1234600, 25.5679100, 0.0, 5.5]
+    ["ped0", 24.9384600, 60.1699050, 180.0, 1.2],
+    ["bike1", 24.9384700, 60.1699200, 0.0, 5.5]
   ],
   "tls": {
     "tl0": "GGrrGGrr",
@@ -270,7 +270,8 @@ If a command is malformed or unsupported:
 
 ## Example: integrating a simengine
 
-Pseudocode for OC's simengine_integrated.py:
+Pseudocode for an OC simengine step loop (the module owning the SUMO steps —
+e.g. `simengine.py`):
 
 ```python
 import nats
