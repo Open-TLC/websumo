@@ -183,12 +183,12 @@ use cases. Treat it as a prototype, not a production architecture.
 | 3 | Choose simulation-master ownership (Option 2 vs 3 vs 4) | ✅ **Option 3 chosen** — OC's simengine is master and adopts `sim.{scenario}.*` |
 | 4 | Implement: OC vendors `backend/simbridge.py`, ~15 lines in its step loop | OC-side, hand-off ready — `INTEGRATING_WITH_OC.md` |
 
-> **Decision (Option 3).** OC's `simengine_integrated.py` owns the simulation and
-> adopts WebSUMO's `sim.{scenario}.*` protocol via `simbridge.py`; WebSUMO is a
-> pure NATS subscriber. The earlier Option-2 idea — the adapter republishing
-> `detector.control.*` and applying OC's `group.control.*` — is **not** the plan.
-> The flat OC-facing subjects and the leaf-node topology in
-> `NATS_TOPOLOGY_RESEARCH.md` were premised on Option 2 and are superseded.
+> **Direction.** WebSUMO exposes the `sim.{scenario}.*` interface (frozen in
+> `SIM_PROTOCOL.md`); the integration is implemented on the OC side against it —
+> OC's simengine publishes/consumes those subjects via `simbridge.py`, WebSUMO
+> stays a pure subscriber. The other approaches below (adapter republishing
+> `detector.control.*` / `group.control.*`; a `nats_traci` transport) were
+> considered but are not planned at this stage.
 
 The guiding principle held: **interfaces first, integration second.** The stable
 `sim.{scenario}.*` schema (frozen in `SIM_PROTOCOL.md`) is the contract OC codes

@@ -140,28 +140,20 @@ Any NATS client (OC, recorder, custom tool) can subscribe to `sim.{scenario}.sta
 or publish commands to `sim.{scenario}.cmd.*` alongside the browser. Commands are
 fire-and-forget; they are buffered and applied before the next simulation step.
 
-### Open Controller integration (Option 3 — OC owns the sim)
+### Open Controller integration
 
-Integrated mode follows **Option 3**: OC's `simengine_integrated.py` is the
-simulation master and adopts the `sim.{scenario}.*` protocol above via
-`backend/simbridge.py` — publishing `sim.{scenario}.state` each step and draining
-`sim.{scenario}.cmd.*`. WebSUMO is then a pure NATS subscriber; the
-`sumo_adapter.py` in this repo is the *standalone* (no-OC) simengine only.
+WebSUMO exposes a stable NATS interface — the `sim.{scenario}.*` subjects above,
+frozen (versioned `v: 1`) in `docs/SIM_PROTOCOL.md`. Integration is implemented
+on the **OC side** against that interface: OC's simengine publishes
+`sim.{scenario}.state` and consumes `sim.{scenario}.cmd.*` via
+`backend/simbridge.py` (see `docs/INTEGRATING_WITH_OC.md`; hand-off summary in
+`docs/OC_INTEGRATION_HANDOFF.md`). WebSUMO is then a pure NATS subscriber; the
+`sumo_adapter.py` in this repo is the standalone (no-OC) simengine.
 
-- Contract (frozen, versioned `v: 1`): **`docs/SIM_PROTOCOL.md`**
-- OC-side integration (vendor `simbridge.py`, ~15 lines in OC's step loop):
-  **`docs/INTEGRATING_WITH_OC.md`**
-- Hand-off summary: **`docs/OC_INTEGRATION_HANDOFF.md`**
-- Option analysis / open questions: **`docs/INTEGRATION_ROADMAP.md`**
-
-> **Superseded — do not build.** An earlier plan had the adapter act as a
-> drop-in replacement for OC's simengine: republish detectors on
-> `detector.control.{det_id}` and apply OC signal commands from
-> `group.control.{group_id}` via `trafficlight.setRedYellowGreenState`. That is
-> **Option 2**; it was dropped in favour of Option 3 (the bridge). The generic
-> request-reply layer (`sumo.{sim}.get/set.{domain}.{var}`) and a drop-in
-> `nats_traci` transport were also researched
-> (`docs/NATS_TRACI_REPLACEMENT_RESEARCH.md`) but are superseded and not built.
+Other approaches — the adapter republishing OC's `detector.control.*` /
+`group.control.*` subjects, or a drop-in `nats_traci` transport (see
+`docs/NATS_TRACI_REPLACEMENT_RESEARCH.md`) — were considered but are not planned
+at this stage.
 
 ## Development (hot reload)
 

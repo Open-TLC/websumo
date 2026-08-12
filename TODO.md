@@ -3,36 +3,23 @@
 Planned features, each with completed feasibility research. Ordered by
 priority; effort estimates from the linked research docs.
 
-## 1. Open Controller integration (Option 3 — OC owns the sim)
+## 1. Open Controller integration
 
-Integrated mode: OC's `simengine_integrated.py` becomes the simulation master
-and adopts WebSUMO's `sim.{scenario}.*` protocol via `backend/simbridge.py`
-(publishes `sim.{scenario}.state`, drains `sim.{scenario}.cmd.*`). WebSUMO is
-then a **pure NATS subscriber** in integrated mode — no TraCI ownership, no
-`--num-clients` barrier. The adapter (`sumo_adapter.py`) stays as WebSUMO's
-*standalone* (no-OC) simengine only.
+WebSUMO exposes a stable NATS interface — the `sim.{scenario}.*` subjects,
+frozen (versioned `v: 1`) in `docs/SIM_PROTOCOL.md`. Integration is implemented
+on the **OC side**, against that interface: OC's simengine publishes
+`sim.{scenario}.state` and consumes `sim.{scenario}.cmd.*` (vendor
+`backend/simbridge.py`, ~15 lines in its step loop — see
+`docs/INTEGRATING_WITH_OC.md`, hand-off summary in
+`docs/OC_INTEGRATION_HANDOFF.md`). WebSUMO stays a pure NATS subscriber;
+`sumo_adapter.py` here is the standalone (no-OC) simengine.
 
-> **Do NOT** build the adapter as a drop-in for OC's simengine — i.e. the
-> adapter republishing `detector.control.*` and applying `group.control.*` via
-> `setRedYellowGreenState`. That is **Option 2**, which was dropped in favour of
-> Option 3 (the bridge). Rebuilding it re-creates the mistake the handoff docs
-> exist to prevent.
-
-The deliverable is mostly on the OC side, and is hand-off ready:
-
-- OC vendors `backend/simbridge.py` and adds ~15 lines to its step loop
-  (publish state after `simulationStep()`, drain commands) —
-  see `docs/INTEGRATING_WITH_OC.md`.
-- The `sim.{scenario}.*` contract is frozen in `docs/SIM_PROTOCOL.md`
-  (versioned `v: 1`); hand-off summary in `docs/OC_INTEGRATION_HANDOFF.md`.
-- **Open question** (`docs/INTEGRATION_ROADMAP.md`): whether OC can run
-  control-engine-only (self-clocked adapter + fire-and-forget signal writes),
-  or needs strict per-step lockstep (roadmap Option C). Confirm before wiring.
-- End-to-end test: OC control engine driving signals on fi.helsinki.269,
-  visible in the viewer, both attached to the same NATS broker.
+Other approaches — the adapter republishing OC's `detector.control.*` /
+`group.control.*` subjects, or a drop-in `nats_traci` transport — were
+considered but are not planned at this stage.
 
 **Docs:** `docs/SIM_PROTOCOL.md`, `docs/INTEGRATING_WITH_OC.md`,
-`docs/OC_INTEGRATION_HANDOFF.md`, `docs/INTEGRATION_ROADMAP.md`
+`docs/OC_INTEGRATION_HANDOFF.md`
 
 ## 2. Element inspector — extend beyond vehicles + TLS
 
