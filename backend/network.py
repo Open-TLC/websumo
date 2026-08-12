@@ -58,7 +58,11 @@ def _detector_features(net_xml_path: str, net) -> list:
         return []
 
     features = []
-    for loop in ET.parse(det_xml).getroot().iter('inductionLoop'):
+    # `<inductionLoop>` and `<e1Detector>` are SUMO aliases for the same E1
+    # detector (same id/lane/pos attrs), but ET.iter() is a literal tag match —
+    # accept both so files from any producer (e.g. OC uses <e1Detector>) render.
+    root = ET.parse(det_xml).getroot()
+    for loop in (e for e in root.iter() if e.tag in ('inductionLoop', 'e1Detector')):
         lane_id = loop.get('lane', '')
         try:
             lane = net.getLane(lane_id)

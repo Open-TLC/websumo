@@ -202,9 +202,20 @@ WebSUMO owns the geometry→GeoJSON rendering, which can evolve without touching
 - **Size:** files are static per scenario; an intersection net is tens of KB
   gzipped, within the 1 MB core-NATS payload cap. For very large city nets that
   exceed it, raise `max_payload` in the broker config or chunk.
+- **One document per subject.** Each reply is a single XML document. If the
+  scenario's files are split on the simengine side (e.g. per-approach detector
+  files `..._e1dets.add.xml`, or multiple route files), **the simengine merges
+  them** into one document — a single `<additional>` root wrapping all elements —
+  before replying. Merging is the file owner's job; the protocol carries one doc.
+- **Detector tag aliases.** SUMO treats `<inductionLoop>` and `<e1Detector>` as
+  the same E1 detector, but XML tag matching does not. WebSUMO's renderer accepts
+  **both** tags, so detector files from any producer draw bars. (If a producer
+  emits neither tag, detectors won't render — normalise on one side.)
 
 `simbridge.py` answers these automatically when constructed with
 `net_xml_path=...` and/or `files={'net': ..., 'detectors': ..., 'routes': ...}`.
+It serves each file as-is — if the OC scenario has split detector/route files,
+merge them into one document per kind before handing the path to `files=`.
 
 ---
 
