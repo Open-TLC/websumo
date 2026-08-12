@@ -10,6 +10,12 @@ publishes state to `sim.{scenario}.state`; WebSUMO subscribes and renders it —
 it does **not** run SUMO in this mode. `sumo_adapter.py` stays as WebSUMO's
 standalone (no-OC) simengine.
 
+The WebSUMO side is done: the interface is frozen (`docs/SIM_PROTOCOL.md`,
+versioned `v: 1`) and a drop-in bridge is provided (`backend/simbridge.py`) so
+OC's simengine can publish/consume `sim.{scenario}.*` with ~15 lines in its step
+loop — see `docs/INTEGRATING_WITH_OC.md` (hand-off summary in
+`docs/OC_INTEGRATION_HANDOFF.md`). The remaining work is OC-side.
+
 OC keeps its own detector and signal subjects to itself; WebSUMO does not
 republish detectors or drive signals. (An earlier note here had the adapter be a
 drop-in for OC's `simengine_integrated.py` — republishing `detector.control.*`
@@ -18,7 +24,8 @@ and applying `group.control.*` — an approach that is not planned.)
 - End-to-end test: OC's simengine driving fi.helsinki.269, visible in the viewer,
   both on the same NATS broker.
 
-**Research:** `docs/INTEGRATION_ROADMAP.md`, `docs/NATS_TRACI_REPLACEMENT_RESEARCH.md`
+**Docs:** `docs/SIM_PROTOCOL.md`, `docs/INTEGRATING_WITH_OC.md`,
+`docs/OC_INTEGRATION_HANDOFF.md`, `docs/INTEGRATION_ROADMAP.md`
 
 ## 2. Element inspector — extend beyond vehicles + TLS
 

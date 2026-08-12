@@ -148,6 +148,12 @@ subscribes and renders it, and does **not** run SUMO in this mode. Browser
 commands go out on `sim.{scenario}.cmd.*`. The `sumo_adapter.py` in this repo is
 WebSUMO's standalone (no-OC) simengine.
 
+The interface is frozen (versioned `v: 1`) in `docs/SIM_PROTOCOL.md`, and a
+drop-in bridge is provided in `backend/simbridge.py` so OC's simengine can
+publish/consume `sim.{scenario}.*` with ~15 lines in its step loop — see
+`docs/INTEGRATING_WITH_OC.md` (hand-off summary in
+`docs/OC_INTEGRATION_HANDOFF.md`).
+
 OC keeps its own detector and signal subjects to itself; WebSUMO does not
 republish detectors or drive signals. (An earlier draft specified the adapter
 republishing `detector.control.*` and applying `group.control.*` as the planned
