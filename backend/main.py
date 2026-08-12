@@ -214,15 +214,23 @@ class StartRequest(BaseModel):
 def start_adapter(req: StartRequest) -> dict:
     global _adapter_proc
     _require_scenario(req.scenario)
+
+    sumocfg = pathlib.Path(SCENARIOS_DIR) / f'{req.scenario}.sumocfg'
+    if not sumocfg.exists():
+        # Integrated mode: a simengine (e.g. OC) already owns this scenario over
+        # NATS. Don't spawn our own adapter — and don't kill theirs — just attach:
+        # the WebSocket relay streams the externally-owned sim. (Checked before any
+        # _kill_orphans so we never take down the external simengine.)
+        if req.scenario in _live_scenario_ids():
+            return {'ok': True, 'scenario': req.scenario, 'end': req.end, 'attached': True}
+        raise HTTPException(404, f'Scenario not found: {req.scenario}')
+
+    # Standalone: we own the sim — (re)spawn our adapter.
     if _adapter_proc and _adapter_proc.poll() is None:
         _adapter_proc.terminate()
         _adapter_proc.wait()
         _adapter_proc = None
     _kill_orphans()
-
-    sumocfg = pathlib.Path(SCENARIOS_DIR) / f'{req.scenario}.sumocfg'
-    if not sumocfg.exists():
-        raise HTTPException(404, f'Scenario not found: {req.scenario}')
 
     log = open(f'/tmp/sumo_adapter_{req.scenario}.log', 'w')
     _adapter_proc = subprocess.Popen(
