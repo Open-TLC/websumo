@@ -189,7 +189,7 @@ use cases. Treat it as a prototype, not a production architecture.
 | 2 | Define and freeze the NATS subject schema and command protocol | ✅ `sim.{scenario}.*` shipped — the interface OC publishes/subscribes against |
 | 2b | *(Optional prototype)* Import OC control engine as an in-process library | only if a NATS-free prototype is wanted |
 | 3 | Choose simulation-master ownership (Option 2 vs 3 vs 4) | ✅ **decided 2026-08-12 — Option 3** (OC owns the sim; WebSUMO subscribes) |
-| 4 | Implement: OC publishes `sim.{scenario}.state`; WebSUMO renders it | OC-side work |
+| 4 | Implement: OC publishes `sim.{scenario}.state`; WebSUMO renders it | OC-side work. WebSUMO side done & tested **disk-less** (files + state over NATS, attach-on-Start). |
 
 The guiding principle: **interfaces first, integration second.** A stable NATS
 topic schema agreed between WebSUMO and OC is worth more than any amount of

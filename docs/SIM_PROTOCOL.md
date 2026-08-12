@@ -26,6 +26,14 @@ sim.{scenario}.routes      ← request-reply: gzipped .rou.xml (optional)
 
 Example scenario IDs: `fi.helsinki.269`, `test.intersection`, etc. — any string without dots-or-hyphens in the subject path.
 
+**Discovery & disk-less operation.** A scenario is *discoverable* as soon as the
+simengine publishes `sim.{scenario}.state` — a viewer can list it by watching
+`sim.>` for `.state` subjects (no registry needed). Combined with the file
+request-reply subjects (`.net` / `.detectors` / `.routes`), a viewer needs
+**nothing on its own disk**: it renders the network from NATS and streams state.
+WebSUMO uses exactly this — it discovers the scenario, fetches the files on Load,
+and attaches to the simengine on Start (it never spawns or kills one of its own).
+
 ---
 
 ## Message Schemas

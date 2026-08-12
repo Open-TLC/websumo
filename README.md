@@ -79,6 +79,11 @@ sim.{scenario}.cmd.select   payload: {"kind": "vehicle"|"tls", "id": ..., "clien
 sim.{scenario}.cmd.spawn    payload: {"edge": "approach_...", "vtype": "car",
                                       "lane": 0 (optional lane index; else 'free')}
                             inject one vehicle of vtype at that entry edge/lane
+sim.{scenario}.net          request-reply: gzipped .net.xml (network geometry)
+sim.{scenario}.detectors    request-reply: gzipped .detectors.xml (optional)
+sim.{scenario}.routes       request-reply: gzipped .rou.xml (optional)
+                            static scenario files — a client renders with nothing
+                            on its own disk (the adapter/simbridge serves them)
 ```
 
 `select` makes the adapter attach an `inspect` block (vehicle: ~24 fields —
@@ -150,9 +155,17 @@ WebSUMO's standalone (no-OC) simengine.
 
 The interface is frozen (versioned `v: 1`) in `docs/SIM_PROTOCOL.md`, and a
 drop-in bridge is provided in `backend/simbridge.py` so OC's simengine can
-publish/consume `sim.{scenario}.*` with ~15 lines in its step loop — see
-`docs/INTEGRATING_WITH_OC.md` (hand-off summary in
+publish/consume `sim.{scenario}.*` — and serve the scenario files on
+`sim.{scenario}.net/detectors/routes` — with ~15 lines in its step loop (see
+`docs/INTEGRATING_WITH_OC.md`; hand-off summary in
 `docs/OC_INTEGRATION_HANDOFF.md`).
+
+**Disk-less integrated mode.** Because the simengine serves the scenario files
+*and* state over NATS, the WebSUMO backend needs **nothing on its own disk** in
+integrated mode: it discovers the scenario from its live state, fetches the
+network + overlays over NATS on Load, and attaches to OC's sim on Start (never
+spawning or killing a simengine of its own). Run the backend with an empty
+`SCENARIOS_DIR`; standalone mode (local files, disk-first) is unchanged.
 
 OC keeps its own detector and signal subjects to itself; WebSUMO does not
 republish detectors or drive signals. (An earlier draft specified the adapter

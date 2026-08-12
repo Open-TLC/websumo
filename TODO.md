@@ -12,9 +12,13 @@ standalone (no-OC) simengine.
 
 The WebSUMO side is done: the interface is frozen (`docs/SIM_PROTOCOL.md`,
 versioned `v: 1`) and a drop-in bridge is provided (`backend/simbridge.py`) so
-OC's simengine can publish/consume `sim.{scenario}.*` with ~15 lines in its step
-loop — see `docs/INTEGRATING_WITH_OC.md` (hand-off summary in
-`docs/OC_INTEGRATION_HANDOFF.md`). The remaining work is OC-side.
+OC's simengine can publish/consume `sim.{scenario}.*` and serve the scenario
+files on `sim.{scenario}.net/detectors/routes` with ~15 lines in its step loop —
+see `docs/INTEGRATING_WITH_OC.md` (hand-off summary in
+`docs/OC_INTEGRATION_HANDOFF.md`). Tested **disk-less**: WebSUMO discovers the
+scenario from live state, fetches the network + overlays over NATS on Load, and
+attaches to an externally-owned sim on Start (no local `SCENARIOS_DIR`). The
+remaining work is OC-side.
 
 OC keeps its own detector and signal subjects to itself; WebSUMO does not
 republish detectors or drive signals. (An earlier note here had the adapter be a
