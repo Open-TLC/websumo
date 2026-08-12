@@ -1,6 +1,13 @@
 # WebSUMO + Open Controller — Integration Roadmap
 
-*Status: planning / pre-integration. Last updated: 2026-07-03.*
+*Status: direction decided (Option 3). Last updated: 2026-08-12.*
+
+> **Decision (2026-08-12): Option 3.** OC's simengine owns the simulation and
+> publishes `sim.{scenario}.state`; WebSUMO subscribes and renders, and does not
+> run SUMO in integrated mode. WebSUMO exposes the `sim.{scenario}.*` interface;
+> OC keeps its own detector/signal subjects to itself. Options 2 and 4, and the
+> `detector.control.*` / `group.control.*` subject bridge referenced below, were
+> considered but are not planned.
 
 ---
 
@@ -13,10 +20,10 @@ and `.log`); a FastAPI WebSocket relay forwards that to the browser and
 forwards browser commands (`sim.{scenario}.cmd.*`) back. So **Option 1 below
 (a NATS publishing layer) is already done** — WebSUMO is a NATS
 publisher/subscriber, not a TraCI socket owner. The Open Controller (OC) is a
-separate NATS-native project. The remaining integration work is the OC-facing
-subject bridge (detector republish + signal-command intake — TODO item 2), not
-the transport, which is why the option analysis below is now about *who owns
-the SUMO process*, with the NATS substrate taken as given.
+separate NATS-native project. The direction is now decided (Option 3, above):
+OC owns the simulation and publishes `sim.{scenario}.state`; WebSUMO subscribes
+and renders. The option analysis below is kept for the record of *who owns the
+SUMO process*, with the NATS substrate taken as given.
 
 > The subsections below predate the migration and are kept for the option
 > analysis (who should own the simulation). Where they say `session.py`, read
@@ -179,17 +186,11 @@ use cases. Treat it as a prototype, not a production architecture.
 | Step | Action | Status |
 |------|--------|--------|
 | 1 | Add NATS publishing to WebSUMO (Option 1) | ✅ done |
-| 2 | Define and freeze the `sim.{scenario}.*` schema and command protocol | ✅ done — frozen (versioned `v: 1`) in `SIM_PROTOCOL.md` |
-| 3 | Choose simulation-master ownership (Option 2 vs 3 vs 4) | ✅ **Option 3 chosen** — OC's simengine is master and adopts `sim.{scenario}.*` |
-| 4 | Implement: OC vendors `backend/simbridge.py`, ~15 lines in its step loop | OC-side, hand-off ready — `INTEGRATING_WITH_OC.md`. WebSUMO side done & tested **disk-less** (files + state over NATS, attach-on-Start). |
+| 2 | Define and freeze the NATS subject schema and command protocol | ✅ `sim.{scenario}.*` shipped — the interface OC publishes/subscribes against |
+| 2b | *(Optional prototype)* Import OC control engine as an in-process library | only if a NATS-free prototype is wanted |
+| 3 | Choose simulation-master ownership (Option 2 vs 3 vs 4) | ✅ **decided 2026-08-12 — Option 3** (OC owns the sim; WebSUMO subscribes) |
+| 4 | Implement: OC publishes `sim.{scenario}.state`; WebSUMO renders it | OC-side work. WebSUMO side done & tested **disk-less** (files + state over NATS, attach-on-Start). |
 
-> **Direction.** WebSUMO exposes the `sim.{scenario}.*` interface (frozen in
-> `SIM_PROTOCOL.md`); the integration is implemented on the OC side against it —
-> OC's simengine publishes/consumes those subjects via `simbridge.py`, WebSUMO
-> stays a pure subscriber. The other approaches below (adapter republishing
-> `detector.control.*` / `group.control.*`; a `nats_traci` transport) were
-> considered but are not planned at this stage.
-
-The guiding principle held: **interfaces first, integration second.** The stable
-`sim.{scenario}.*` schema (frozen in `SIM_PROTOCOL.md`) is the contract OC codes
-against.
+The guiding principle: **interfaces first, integration second.** A stable NATS
+topic schema agreed between WebSUMO and OC is worth more than any amount of
+integration code built on assumptions that shift.
