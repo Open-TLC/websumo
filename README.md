@@ -25,28 +25,54 @@ subscribes to command subjects from any connected client (browser, Open
 Controller, recording tools). FastAPI relays NATS ↔ browser WebSocket on the
 same port (8775), so only one port needs to be reachable from the browser.
 
-## Quick start
+## Dependencies
 
 ```bash
-# 1. Install Python dependencies
-cd backend
-pip install -r requirements.txt   # fastapi, uvicorn, nats-py, libsumo
-
-# 2. Install and start NATS broker
-./nats-server -c nats-server.conf   # TCP :4222 (backend ↔ NATS)
-
-# 3. Build the frontend
-cd frontend && npm install && npm run build
-
-# 4. Start the backend (serves frontend + API + WebSocket relay)
-cd ../backend
-SCENARIOS_DIR=/tmp/shared/sumotest python -m uvicorn main:app --host 0.0.0.0 --port 8775
+# Python deps (fastapi, uvicorn, pydantic, nats-py, libsumo)
+python3 -m pip install --user -r backend/requirements.txt
 ```
 
-Open **http://localhost:8775**.
+Also required, installed **separately** (not pip packages in this repo):
+- **SUMO** — provides `sumolib` on the Python path and the `sumo`/`netconvert`
+  binaries. `libsumo` (a pip package, in `requirements.txt`) must match its version.
+- **Node** — to build the frontend (`cd frontend && npm install && npm run build`).
+- **NATS** — the `nats-server` binary is included in the repo root.
 
-The `nats-server` binary is included in the repo root. `SCENARIOS_DIR` should
-contain `.sumocfg` and `.net.xml` files (produced by `graph2sumo`).
+If any of these go missing (e.g. a fresh/reset environment), `./run.sh` checks
+them up front and tells you exactly what to install, rather than failing silently.
+
+## Quick start — file-free (NATS-only) mode
+
+This is the intended integrated-mode setup: the backend holds **no scenario
+files**; a simengine serves the network + detectors + routes + live state over
+NATS. One command brings up NATS + backend + simengine and verifies it:
+
+```bash
+./run.sh                 # scenario defaults to fi.helsinki.269
+./run.sh fi.helsinki.270 # or pick another
+./run.sh stop            # stop backend + simengine
+```
+
+Open **http://localhost:8775** → pick the scenario → **Load** (network arrives
+over NATS) → **Start** (attaches to the simengine; live vehicles stream).
+`SCENARIOS_DIR` (default `/tmp/shared/sumotest`) is where the *simengine* reads
+the real files from; the backend itself runs against an empty dir.
+
+## Quick start — standalone (local files)
+
+If you just want the viewer against local scenario files (no separate simengine),
+run the backend against a `SCENARIOS_DIR` that has the files; it reads them from
+disk and spawns its own libsumo adapter on Start:
+
+```bash
+./nats-server -c nats-server.conf &
+cd frontend && npm install && npm run build && cd ..
+cd backend && SCENARIOS_DIR=/tmp/shared/sumotest \
+    python3 -m uvicorn main:app --host 0.0.0.0 --port 8775
+```
+
+`SCENARIOS_DIR` should contain `.sumocfg` / `.net.xml` files (produced by
+`graph2sumo`).
 
 ### Access control
 

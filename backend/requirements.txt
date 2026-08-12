@@ -1,4 +1,14 @@
+# Python dependencies for the WebSUMO backend.
+#
+#   python3 -m pip install --user -r backend/requirements.txt
+#
+# NOTE on SUMO: `sumolib` and the `sumo` / `netconvert` binaries are NOT pip
+# packages here — they come from the SUMO distribution, which must be installed
+# separately (it also provides sumolib on the path). Only `libsumo` (the
+# in-process SUMO engine used by sumo_adapter.py) is installed via pip below,
+# and its version should match your installed SUMO/sumolib.
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
+pydantic>=2.0
 nats-py>=2.9.0
-libsumo==1.27.0
+libsumo>=1.27.0   # keep in sync with the installed SUMO/sumolib version
