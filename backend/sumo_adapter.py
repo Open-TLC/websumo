@@ -302,6 +302,20 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
 
     await nc.subscribe(f'sim.{scenario}.cmd.*', cb=on_cmd)
 
+    # Serve the network on request (same contract as simbridge — see
+    # SIM_PROTOCOL.md `sim.{scenario}.net`), so a backend with no local scenario
+    # files can still render this sim. Gzipped; read once (static per scenario).
+    try:
+        import gzip
+        with open(net_xml, 'rb') as _nf:
+            _net_gz = gzip.compress(_nf.read())
+
+        async def on_net(msg: nats.aio.msg.Msg) -> None:
+            await msg.respond(_net_gz)
+        await nc.subscribe(f'sim.{scenario}.net', cb=on_net)
+    except OSError:
+        pass
+
     sumo_cmd = [
         'sumo', '-c', sumocfg,
         '--step-length', '0.1',   # 10 physics steps per sim-second
