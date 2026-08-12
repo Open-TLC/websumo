@@ -17,6 +17,8 @@ sim.{scenario}.state       ← simengine publishes each step
 sim.{scenario}.log         ← simengine publishes events (collisions, etc.)
 sim.{scenario}.end         ← simengine publishes when sim ends
 sim.{scenario}.cmd.*       ← clients publish commands (pause, speed, scale, etc.)
+sim.{scenario}.net         ← request-reply: simengine returns the .net.xml
+                              (gzipped) so clients can render without a local copy
 ```
 
 Example scenario IDs: `fi.helsinki.269`, `test.intersection`, etc. — any string without dots-or-hyphens in the subject path.
@@ -159,6 +161,31 @@ or for TLS:
 **Payload:** Empty JSON object `{}`.
 
 Indicates the simulation has reached its configured end time or run out of traffic. Clients should reset their state, hide playback controls, or prompt for a new scenario.
+
+---
+
+### `sim.{scenario}.net` — Network file (request-reply)
+
+**Pattern:** request-reply. A client sends an (empty) request; the simengine
+**replies** with the scenario's SUMO `.net.xml`, **gzip-compressed**.
+
+This lets a viewer render the network without a local copy of the scenario
+files — in integrated mode the simengine (OC) owns the scenario, so WebSUMO
+fetches the network over NATS instead of reading `SCENARIOS_DIR` from disk.
+
+- **Request payload:** empty (`b""`).
+- **Reply payload:** `gzip(<.net.xml bytes>)`. Clients should gunzip; a client may
+  fall back to treating the reply as raw XML if it is not gzip.
+- **Optional:** a simengine that has no network to serve simply does not
+  subscribe, and requests time out (the client then reports the scenario
+  unavailable). WebSUMO prefers a local `.net.xml` and only requests over NATS
+  when none is on disk.
+- **Size:** the `.net.xml` is static per scenario; an intersection net is tens of
+  KB gzipped, within the 1 MB core-NATS payload cap. For very large city nets
+  that exceed it, raise `max_payload` in the broker config or chunk.
+
+`simbridge.py` answers this automatically when constructed with
+`net_xml_path=...`.
 
 ---
 
