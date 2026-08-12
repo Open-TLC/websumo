@@ -131,27 +131,43 @@ def _require_safe_name(scenario: str) -> None:
         raise HTTPException(404, f'Invalid scenario: {scenario}')
 
 
-async def _fetch_net_over_nats(scenario: str) -> pathlib.Path | None:
-    """Request the scenario's .net.xml over NATS and cache it to a temp file.
-
-    Integrated mode: OC owns the scenario and answers `sim.{scenario}.net` with
-    the gzipped network (see simbridge.py). Returns the temp path, or None if no
-    responder / NATS is down."""
-    if _nc_app is None:
-        return None
-    tmp = pathlib.Path(tempfile.gettempdir()) / f'websumo_net_{scenario}.net.xml'
-    if tmp.exists():
-        return tmp
+async def _request_file(scenario: str, kind: str) -> bytes | None:
+    """Request one static scenario file (kind = net/detectors/routes) over NATS."""
     try:
-        reply = await _nc_app.request(f'sim.{scenario}.net', b'', timeout=5.0)
+        reply = await _nc_app.request(f'sim.{scenario}.{kind}', b'', timeout=5.0)
     except Exception:
         return None   # no responder within timeout
     try:
-        xml = gzip.decompress(reply.data)
+        return gzip.decompress(reply.data)
     except OSError:
-        xml = reply.data   # tolerate an uncompressed responder
-    tmp.write_bytes(xml)
-    return tmp
+        return reply.data   # tolerate an uncompressed responder
+
+
+async def _fetch_net_over_nats(scenario: str) -> pathlib.Path | None:
+    """Fetch the scenario's files over NATS and cache them to temp, so the sim
+    renders with nothing on this host's disk (integrated mode: OC owns them).
+
+    The network is required; detectors (.detectors.xml) and routes (.rou.xml) are
+    optional overlays, fetched best-effort and written as siblings of the temp net
+    so network.py's detector-bar and generator-marker builders find them. Returns
+    the net path, or None if no responder / NATS is down."""
+    if _nc_app is None:
+        return None
+    base = pathlib.Path(tempfile.gettempdir()) / f'websumo_net_{scenario}'
+    net_tmp = base.with_name(base.name + '.net.xml')
+    if net_tmp.exists():
+        return net_tmp
+    net = await _request_file(scenario, 'net')
+    if net is None:
+        return None
+    net_tmp.write_bytes(net)
+    # Optional overlays — named so network.py derives them from the net path
+    # (p.name.replace('.net.xml', '.detectors.xml' / '.rou.xml')).
+    for kind, suffix in (('detectors', '.detectors.xml'), ('routes', '.rou.xml')):
+        data = await _request_file(scenario, kind)
+        if data is not None:
+            base.with_name(base.name + suffix).write_bytes(data)
+    return net_tmp
 
 
 def _run_load_check(scenario: str) -> None:

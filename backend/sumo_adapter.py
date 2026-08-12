@@ -302,19 +302,26 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
 
     await nc.subscribe(f'sim.{scenario}.cmd.*', cb=on_cmd)
 
-    # Serve the network on request (same contract as simbridge — see
-    # SIM_PROTOCOL.md `sim.{scenario}.net`), so a backend with no local scenario
-    # files can still render this sim. Gzipped; read once (static per scenario).
-    try:
-        import gzip
-        with open(net_xml, 'rb') as _nf:
-            _net_gz = gzip.compress(_nf.read())
+    # Serve the static scenario files on request (same contract as simbridge —
+    # see SIM_PROTOCOL.md `sim.{scenario}.{net,detectors,routes}`), so a backend
+    # with no local scenario files can render this sim fully over NATS. Gzipped;
+    # read once. Missing files are simply not offered.
+    import gzip
+    _files = {
+        'net':       net_xml,
+        'detectors': f'{SCENARIOS_DIR}/{scenario}.detectors.xml',
+        'routes':    f'{SCENARIOS_DIR}/{scenario}.rou.xml',
+    }
+    for _kind, _path in _files.items():
+        try:
+            with open(_path, 'rb') as _f:
+                _gz = gzip.compress(_f.read())
+        except OSError:
+            continue
 
-        async def on_net(msg: nats.aio.msg.Msg) -> None:
-            await msg.respond(_net_gz)
-        await nc.subscribe(f'sim.{scenario}.net', cb=on_net)
-    except OSError:
-        pass
+        async def _on_file(msg: nats.aio.msg.Msg, _gz: bytes = _gz) -> None:
+            await msg.respond(_gz)
+        await nc.subscribe(f'sim.{scenario}.{_kind}', cb=_on_file)
 
     sumo_cmd = [
         'sumo', '-c', sumocfg,

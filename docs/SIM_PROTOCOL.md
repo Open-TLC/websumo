@@ -17,8 +17,11 @@ sim.{scenario}.state       ← simengine publishes each step
 sim.{scenario}.log         ← simengine publishes events (collisions, etc.)
 sim.{scenario}.end         ← simengine publishes when sim ends
 sim.{scenario}.cmd.*       ← clients publish commands (pause, speed, scale, etc.)
-sim.{scenario}.net         ← request-reply: simengine returns the .net.xml
-                              (gzipped) so clients can render without a local copy
+sim.{scenario}.net         ← request-reply: gzipped .net.xml (network geometry)
+sim.{scenario}.detectors   ← request-reply: gzipped .detectors.xml (optional)
+sim.{scenario}.routes      ← request-reply: gzipped .rou.xml (optional)
+                              static scenario files, so a client renders with
+                              nothing on its own disk
 ```
 
 Example scenario IDs: `fi.helsinki.269`, `test.intersection`, etc. — any string without dots-or-hyphens in the subject path.
@@ -164,28 +167,36 @@ Indicates the simulation has reached its configured end time or run out of traff
 
 ---
 
-### `sim.{scenario}.net` — Network file (request-reply)
+### `sim.{scenario}.net` / `.detectors` / `.routes` — Static scenario files (request-reply)
 
 **Pattern:** request-reply. A client sends an (empty) request; the simengine
-**replies** with the scenario's SUMO `.net.xml`, **gzip-compressed**.
+**replies** with the corresponding SUMO file, **gzip-compressed**:
 
-This lets a viewer render the network without a local copy of the scenario
-files — in integrated mode the simengine (OC) owns the scenario, so WebSUMO
-fetches the network over NATS instead of reading `SCENARIOS_DIR` from disk.
+| Subject | File | Renders | Required |
+|---|---|---|---|
+| `sim.{scenario}.net` | `.net.xml` | lanes, junctions, crossings, cycle lanes, stop lines | yes |
+| `sim.{scenario}.detectors` | `.detectors.xml` | detector bars | optional |
+| `sim.{scenario}.routes` | `.rou.xml` | generator (inject) markers + vType list | optional |
+
+This lets a viewer render with **no local copy** of the scenario — in integrated
+mode the simengine (OC) owns the files, so WebSUMO fetches them over NATS instead
+of reading `SCENARIOS_DIR` from disk. Sending the raw XML (not pre-rendered
+GeoJSON) keeps the contract minimal: OC ships the files it already has, and
+WebSUMO owns the geometry→GeoJSON rendering, which can evolve without touching OC.
 
 - **Request payload:** empty (`b""`).
-- **Reply payload:** `gzip(<.net.xml bytes>)`. Clients should gunzip; a client may
-  fall back to treating the reply as raw XML if it is not gzip.
-- **Optional:** a simengine that has no network to serve simply does not
-  subscribe, and requests time out (the client then reports the scenario
-  unavailable). WebSUMO prefers a local `.net.xml` and only requests over NATS
-  when none is on disk.
-- **Size:** the `.net.xml` is static per scenario; an intersection net is tens of
-  KB gzipped, within the 1 MB core-NATS payload cap. For very large city nets
-  that exceed it, raise `max_payload` in the broker config or chunk.
+- **Reply payload:** `gzip(<file bytes>)`. Clients gunzip; a client may fall back
+  to treating the reply as raw bytes if it is not gzip.
+- **Optional files:** a simengine that has no `.detectors.xml` / `.rou.xml` simply
+  does not subscribe those subjects; the request times out and the client renders
+  without that overlay. Only `.net` is required. WebSUMO prefers local files and
+  only requests over NATS when none are on disk.
+- **Size:** files are static per scenario; an intersection net is tens of KB
+  gzipped, within the 1 MB core-NATS payload cap. For very large city nets that
+  exceed it, raise `max_payload` in the broker config or chunk.
 
-`simbridge.py` answers this automatically when constructed with
-`net_xml_path=...`.
+`simbridge.py` answers these automatically when constructed with
+`net_xml_path=...` and/or `files={'net': ..., 'detectors': ..., 'routes': ...}`.
 
 ---
 
