@@ -26,6 +26,7 @@ SCENARIOS_DIR = os.environ.get('SCENARIOS_DIR', '/tmp/shared/sumotest')
 NATS_URL      = os.environ.get('NATS_URL', 'nats://localhost:4222')
 FRONTEND_DIST = pathlib.Path(__file__).parent.parent / 'frontend' / 'dist'
 ADAPTER_SCRIPT = pathlib.Path(__file__).parent / 'sumo_adapter.py'
+FUSION_SCRIPT  = pathlib.Path(__file__).parent / 'fcd_fusion.py'   # V2X LDM merge
 # The production build is served same-origin from this app, so CORS is only
 # needed for the Vite dev server. Default to the dev origins; override with a
 # comma-separated ALLOWED_ORIGINS. Never '*' — these endpoints spawn processes.
@@ -45,22 +46,24 @@ app.add_middleware(
 api = APIRouter(prefix='/api')
 
 _adapter_proc: subprocess.Popen | None = None
+_fusion_proc: subprocess.Popen | None = None   # V2X LDM fusion node
 
 
 def _kill_orphans() -> None:
-    """Kill any sumo_adapter.py processes left over from a previous server run."""
-    try:
-        result = subprocess.run(
-            ['pgrep', '-f', 'sumo_adapter.py'],
-            capture_output=True, text=True,
-        )
-        for pid in result.stdout.split():
-            try:
-                os.kill(int(pid), signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-    except FileNotFoundError:
-        pass
+    """Kill any adapter/fusion processes left over from a previous server run."""
+    for name in ('sumo_adapter.py', 'fcd_fusion.py'):
+        try:
+            result = subprocess.run(
+                ['pgrep', '-f', name],
+                capture_output=True, text=True,
+            )
+            for pid in result.stdout.split():
+                try:
+                    os.kill(int(pid), signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+        except FileNotFoundError:
+            pass
 
 
 _kill_orphans()
@@ -212,7 +215,7 @@ class StartRequest(BaseModel):
 
 @api.post('/adapter/start')
 def start_adapter(req: StartRequest) -> dict:
-    global _adapter_proc
+    global _adapter_proc, _fusion_proc
     _require_scenario(req.scenario)
 
     sumocfg = pathlib.Path(SCENARIOS_DIR) / f'{req.scenario}.sumocfg'
@@ -239,6 +242,15 @@ def start_adapter(req: StartRequest) -> dict:
         stdout=log,
         stderr=log,
     )
+    # V2X: the LDM fusion node shares the adapter's lifecycle — it only makes
+    # sense while a sim runs. It just subscribes to the fcd stream; if it fails
+    # to start, the sim is unaffected (LDM overlay is simply absent).
+    flog = open(f'/tmp/fcd_fusion_{req.scenario}.log', 'w')
+    _fusion_proc = subprocess.Popen(
+        [sys.executable, str(FUSION_SCRIPT), req.scenario],
+        stdout=flog,
+        stderr=flog,
+    )
     return {'ok': True, 'scenario': req.scenario, 'end': req.end}
 
 
@@ -264,14 +276,16 @@ def get_adapter_log(scenario: str, lines: int = 200, full: bool = False) -> dict
 
 @api.post('/adapter/stop')
 def stop_adapter() -> dict:
-    global _adapter_proc
-    if _adapter_proc:
-        _adapter_proc.terminate()
-        try:
-            _adapter_proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            _adapter_proc.kill()
-        _adapter_proc = None
+    global _adapter_proc, _fusion_proc
+    for attr in ('_adapter_proc', '_fusion_proc'):
+        proc = globals()[attr]
+        if proc:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+            globals()[attr] = None
     _kill_orphans()
     return {'ok': True}
 
@@ -297,10 +311,27 @@ async def ws_endpoint(websocket: WebSocket, scenario: str) -> None:
         except Exception:
             pass
 
+    async def on_fcd(msg: nats_client.aio.msg.Msg) -> None:
+        # V2X experiment: floating-car egocentric JSON-LD graph — wrap for routing
+        try:
+            await websocket.send_json({'type': 'fcd', 'graph': json.loads(msg.data)})
+        except Exception:
+            pass
+
+    async def on_ldm(msg: nats_client.aio.msg.Msg) -> None:
+        # V2X: fused shared Local Dynamic Map (all probes merged)
+        try:
+            await websocket.send_json({'type': 'ldm', 'ldm': json.loads(msg.data)})
+        except Exception:
+            pass
+
     await nc.subscribe(f'sim.{scenario}.state', cb=on_state)
     await nc.subscribe(f'sim.{scenario}.end',   cb=on_end)
     # log payloads already carry {"type": "log"} — forward verbatim like state
     await nc.subscribe(f'sim.{scenario}.log',   cb=on_state)
+    # V2X: '>' (multi-token) because scenario/vehicle ids contain dots
+    await nc.subscribe(f'kg.{scenario}.fcd.>',  cb=on_fcd)
+    await nc.subscribe(f'kg.{scenario}.ldm',    cb=on_ldm)
 
     try:
         while True:

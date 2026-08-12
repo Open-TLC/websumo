@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import type { InspectBlock } from './ws'
+import type { InspectBlock, FcdGraph } from './ws'
 
 export type Selected = {
   kind: 'vehicle' | 'tls'
@@ -11,6 +11,7 @@ export type Selected = {
 interface Props {
   selected: Selected
   live: InspectBlock | null
+  fcdGraph?: FcdGraph | null   // V2X: this car's egocentric JSON-LD graph, if it's a floating car
   simTime: number
   simActive: boolean
   onClose: () => void
@@ -106,7 +107,7 @@ function TlsBody({ selected, live, simTime }: {
   )
 }
 
-export function InspectorPanel({ selected, live, simTime, simActive, onClose }: Props) {
+export function InspectorPanel({ selected, live, fcdGraph, simTime, simActive, onClose }: Props) {
   const gone = live?.gone === true
   return (
     <div style={{
@@ -151,6 +152,23 @@ export function InspectorPanel({ selected, live, simTime, simActive, onClose }: 
         )}
         {!gone && selected.kind === 'tls' && (
           <TlsBody selected={selected} live={live} simTime={simTime} />
+        )}
+
+        {/* V2X experiment: this car's egocentric knowledge graph (JSON-LD) */}
+        {!gone && selected.kind === 'vehicle' && fcdGraph && (
+          <div style={{ marginTop: 10 }}>
+            <div style={{ color: '#667', fontSize: 10, letterSpacing: 1, margin: '2px 0 4px' }}>
+              V2X — EGOCENTRIC GRAPH (JSON-LD)
+            </div>
+            <pre style={{
+              margin: 0, padding: '8px 10px', background: '#0c0c18',
+              border: '1px solid #2a2a4a', borderRadius: 4,
+              fontFamily: 'ui-monospace, monospace', fontSize: 10, lineHeight: 1.45,
+              color: '#9db4d0', maxHeight: 260, overflow: 'auto', whiteSpace: 'pre-wrap',
+            }}>
+              {JSON.stringify(fcdGraph, null, 1)}
+            </pre>
+          </div>
         )}
       </div>
     </div>

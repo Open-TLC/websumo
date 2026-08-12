@@ -5,31 +5,26 @@ priority; effort estimates from the linked research docs.
 
 ## 1. Open Controller integration
 
-Integrated mode: **OC owns the simulation.** OC's simengine runs SUMO and
-publishes state to `sim.{scenario}.state`; WebSUMO subscribes and renders it —
-it does **not** run SUMO in this mode. `sumo_adapter.py` stays as WebSUMO's
-standalone (no-OC) simengine.
+WebSUMO exposes a stable NATS interface — the `sim.{scenario}.*` subjects,
+frozen (versioned `v: 1`) in `docs/SIM_PROTOCOL.md`. Integration is implemented
+on the **OC side**, against that interface: OC's simengine publishes
+`sim.{scenario}.state`, consumes `sim.{scenario}.cmd.*`, and serves the static
+files on `sim.{scenario}.net/detectors/routes` (vendor `backend/simbridge.py`,
+~15 lines in its step loop — see `docs/INTEGRATING_WITH_OC.md`, hand-off summary
+in `docs/OC_INTEGRATION_HANDOFF.md`). WebSUMO stays a pure NATS subscriber;
+`sumo_adapter.py` here is the standalone (no-OC) simengine.
 
-The WebSUMO side is done: the interface is frozen (`docs/SIM_PROTOCOL.md`,
-versioned `v: 1`) and a drop-in bridge is provided (`backend/simbridge.py`) so
-OC's simengine can publish/consume `sim.{scenario}.*` and serve the scenario
-files on `sim.{scenario}.net/detectors/routes` with ~15 lines in its step loop —
-see `docs/INTEGRATING_WITH_OC.md` (hand-off summary in
-`docs/OC_INTEGRATION_HANDOFF.md`). Tested **disk-less**: WebSUMO discovers the
-scenario from live state, fetches the network + overlays over NATS on Load, and
-attaches to an externally-owned sim on Start (no local `SCENARIOS_DIR`). The
-remaining work is OC-side.
+The WebSUMO side is complete and tested **disk-less**: it discovers scenarios
+from live state, fetches the network + detector/route overlays over NATS on Load,
+and attaches to an externally-owned sim on Start (no local `SCENARIOS_DIR`
+needed). Remaining work is OC-side.
 
-OC keeps its own detector and signal subjects to itself; WebSUMO does not
-republish detectors or drive signals. (An earlier note here had the adapter be a
-drop-in for OC's `simengine_integrated.py` — republishing `detector.control.*`
-and applying `group.control.*` — an approach that is not planned.)
-
-- End-to-end test: OC's simengine driving fi.helsinki.269, visible in the viewer,
-  both on the same NATS broker.
+Other approaches — the adapter republishing OC's `detector.control.*` /
+`group.control.*` subjects, or a drop-in `nats_traci` transport — were
+considered but are not planned at this stage.
 
 **Docs:** `docs/SIM_PROTOCOL.md`, `docs/INTEGRATING_WITH_OC.md`,
-`docs/OC_INTEGRATION_HANDOFF.md`, `docs/INTEGRATION_ROADMAP.md`
+`docs/OC_INTEGRATION_HANDOFF.md`
 
 ## 2. Element inspector — extend beyond vehicles + TLS
 
@@ -93,7 +88,9 @@ v1 (vehicles + traffic lights) is done — see Done below. Remaining scope:
   See `docs/NETEDIT_WEB_RESEARCH.md`, `docs/NETEDIT_EDITING_ARCHITECTURE.md`
 - **nats_traci client library**: drop-in `import nats_traci as traci` for OC,
   routing TraCI calls over NATS request-reply.
-  See `docs/NATS_TRACI_REPLACEMENT_RESEARCH.md` §3
+  See `docs/NATS_TRACI_REPLACEMENT_RESEARCH.md` §3.
+  *(Superseded by the `simbridge.py` approach in item 1 — kept only as a
+  researched alternative, not a planned build.)*
 - **Day-long demand profiles**: diurnal flow rates (morning/evening peaks)
   belong in graph2sumo demand generation; viewer already supports 24 h runs
   with constant rates

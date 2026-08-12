@@ -161,8 +161,21 @@ def build_network_geojson(net_xml_path: str) -> dict:
     if net_xml_path in _cache:
         return _cache[net_xml_path]
 
-    net = sumolib.net.readNet(net_xml_path, withInternal=False, withPrograms=True)
+    # withInternal=True so pedestrian crossing/walkingarea edges (internal
+    # ':crossing_*' / ':...w*' ids) are available for rendering.
+    net = sumolib.net.readNet(net_xml_path, withInternal=True, withPrograms=True)
     features = []
+
+    # Map each crossing lane -> its controlling TLS link, so crossings can be
+    # coloured live by pedestrian signal state (same mechanism as stoplines).
+    crossing_link: dict[str, tuple[str, int]] = {}
+    for tls in net.getTrafficLights():
+        for sig_idx, conns in tls.getLinks().items():
+            for _from_lane, to_lane, _via in conns:
+                if to_lane is None:
+                    continue
+                if to_lane.getEdge().getFunction() == 'crossing':
+                    crossing_link[to_lane.getID()] = (tls.getID(), int(sig_idx))
 
     # TLS programs keyed by junction ID (static inspection before Start)
     tls_programs: dict[str, dict] = {}
@@ -192,20 +205,65 @@ def build_network_geojson(net_xml_path: str) -> dict:
             'geometry': {'type': 'Polygon', 'coordinates': [coords]},
         })
 
-    # Lane centerlines
+    # Lane centerlines.  Pedestrian-only lanes (footpaths from the walk graph,
+    # plus crossing/sidewalk edges) are tagged 'footpath' so the frontend can
+    # render them distinctly from vehicle lanes.
     for edge in net.getEdges():
-        if edge.getFunction() == 'internal':
-            continue
+        fn = edge.getFunction()
         for lane in edge.getLanes():
             shape = lane.getShape()
             if len(shape) < 2:
                 continue
+            # A bicycle-only lane (approach/exit stub or the internal cycle-track
+            # crossing stripe) — rendered distinctly from footpaths and car lanes.
+            bike_only = (lane.allows('bicycle')
+                         and not lane.allows('passenger')
+                         and not lane.allows('pedestrian'))
+            if fn == 'internal':
+                # Vehicle junction-internal (bezier) lanes are not drawn, but the
+                # bicycle crossing stripe IS an internal lane worth showing.
+                if not bike_only:
+                    continue
+                ptype = 'cyclelane'
+            elif fn == 'crossing':
+                ptype = 'crossing'
+            elif fn == 'walkingarea':
+                continue   # graph2sumo walkingareas are 0.1 m stubs — nothing to draw
+            elif bike_only:
+                ptype = 'cyclelane'
+            elif lane.allows('pedestrian') and not lane.allows('passenger'):
+                ptype = 'footpath'
+            else:
+                ptype = 'lane'
             coords = [list(net.convertXY2LonLat(x, y)) for x, y in shape]
+            props = {'id': lane.getID(), 'type': ptype}
             features.append({
                 'type': 'Feature',
-                'properties': {'id': lane.getID(), 'type': 'lane'},
+                'properties': props,
                 'geometry': {'type': 'LineString', 'coordinates': coords},
             })
+            # For a signalised crossing, emit a perpendicular signal bar at BOTH
+            # ends of the crossing (like the pair of signal heads at a real
+            # crossing — both show the same state), rather than colouring the
+            # whole area.  Oriented across the crossing lane, i.e. perpendicular
+            # to the pedestrian movement, like a vehicle stopline.
+            if ptype == 'crossing' and lane.getID() in crossing_link:
+                tls_id, sig_idx = crossing_link[lane.getID()]
+                length = lane.getLength()
+                offsets = {round(min(0.6, length / 2), 2),
+                           round(max(0.6, length - 0.6), 2)}
+                for off in offsets:
+                    bar = _cross_lane_coords(shape, off, net, half_width=2.0)
+                    if bar:
+                        features.append({
+                            'type': 'Feature',
+                            'properties': {
+                                'type': 'ped_signal',
+                                'tls_id': tls_id,
+                                'sig_idx': sig_idx,
+                            },
+                            'geometry': {'type': 'LineString', 'coordinates': bar},
+                        })
 
     # TLS stop lines — one per incoming lane, mapped to its signal index
     seen_lanes: set[str] = set()
@@ -213,6 +271,10 @@ def build_network_geojson(net_xml_path: str) -> dict:
         tls_id = tls.getID()
         for sig_idx, conns in tls.getLinks().items():
             for from_lane, _to_lane, _via in conns:
+                # Pedestrian links (walkingarea/crossing from-lanes) are drawn as
+                # crossings, not vehicle stoplines.
+                if from_lane.getEdge().getFunction() in ('walkingarea', 'crossing'):
+                    continue
                 lane_id = from_lane.getID()
                 if lane_id in seen_lanes:
                     continue
@@ -230,8 +292,12 @@ def build_network_geojson(net_xml_path: str) -> dict:
                     'geometry': {'type': 'LineString', 'coordinates': coords},
                 })
 
-    # Junction centre points
+    # Junction centre points.  Walk-graph nodes (walk_*) are skipped — their
+    # dots read as spurious "connectors" strung along the footpaths; the
+    # continuous footpath lines already convey the network.
     for node in net.getNodes():
+        if node.getID().startswith('walk_'):
+            continue
         x, y = node.getCoord()
         lon, lat = net.convertXY2LonLat(x, y)
         features.append({

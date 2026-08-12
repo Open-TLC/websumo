@@ -1,6 +1,15 @@
 # Connecting WebSUMO's Local NATS to a Distributed NATS Ecosystem
 ## Best-practices research & recommendation
 
+> ⚠️ **Note (OC integration).** This doc assumes OC integration bridges flat
+> `detector.control.*` / `group.control.*` subjects — an approach we considered
+> but are not planning at this stage. The planned integration has OC implement
+> the `sim.{scenario}.*` interface via `backend/simbridge.py` (see
+> `SIM_PROTOCOL.md`), so there are no flat OC-facing subjects to bridge. The
+> general NATS leaf-node / multi-broker topology guidance below still applies to
+> `sim.{scenario}.*`; ignore the `detector.control.*` / `group.control.*`
+> specifics.
+
 *Researched 2026-07-06 via multi-source web search over the official NATS
 documentation (docs.nats.io), Synadia material, and NATS GitHub. The automated
 synthesis step of the research run was cut short by a session limit, so this
