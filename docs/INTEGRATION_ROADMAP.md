@@ -181,7 +181,7 @@ use cases. Treat it as a prototype, not a production architecture.
 | 1 | Add NATS publishing to WebSUMO (Option 1) | ✅ done |
 | 2 | Define and freeze the `sim.{scenario}.*` schema and command protocol | ✅ done — frozen (versioned `v: 1`) in `SIM_PROTOCOL.md` |
 | 3 | Choose simulation-master ownership (Option 2 vs 3 vs 4) | ✅ **Option 3 chosen** — OC's simengine is master and adopts `sim.{scenario}.*` |
-| 4 | Implement: OC vendors `backend/simbridge.py`, ~15 lines in its step loop | OC-side, hand-off ready — `INTEGRATING_WITH_OC.md` |
+| 4 | Implement: OC vendors `backend/simbridge.py`, ~15 lines in its step loop | OC-side, hand-off ready — `INTEGRATING_WITH_OC.md`. WebSUMO side done & tested **disk-less** (files + state over NATS, attach-on-Start). |
 
 > **Direction.** WebSUMO exposes the `sim.{scenario}.*` interface (frozen in
 > `SIM_PROTOCOL.md`); the integration is implemented on the OC side against it —

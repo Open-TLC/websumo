@@ -32,7 +32,9 @@ A Python module that handles all NATS I/O for a simengine. It:
 **Drop this file into your codebase.** It's dependency-light: only `nats-py` and Python stdlib.
 
 **Key methods:**
-- `bridge = SimBridge(scenario="fi.helsinki.269")` — initialize
+- `bridge = SimBridge(scenario="fi.helsinki.269", files={"net": ..., "detectors": ..., "routes": ...})`
+  — initialize; `files` are served on `sim.{scenario}.net/detectors/routes` so
+  WebSUMO renders disk-less (omit to keep serving from the WebSUMO host's disk)
 - `bridge.publish_step(state_dict)` — publish each step (call after `traci.simulationStep()`)
 - `cmds = bridge.collect_commands()` — drain pending commands (pause, speed, scale, etc.)
 - `bridge.publish_end()` — signal sim ended
@@ -69,10 +71,14 @@ In OC's `services/simengine/src/simengine_integrated.py`:
    import sumolib
    ```
 
-2. **Initialize before the main loop:**
+2. **Initialize before the main loop** (serve the static files so WebSUMO is disk-less):
    ```python
    net = sumolib.net.readNet(net_xml_path, withInternal=False)
-   bridge = SimBridge(scenario=scenario_id, nats_url="nats://localhost:4222")
+   bridge = SimBridge(scenario=scenario_id, nats_url="nats://localhost:4222", files={
+       "net":       net_xml_path,                                 # required
+       "detectors": net_xml_path.replace(".net.xml", ".detectors.xml"),  # optional
+       "routes":    net_xml_path.replace(".net.xml", ".rou.xml"),         # optional
+   })
    ```
 
 3. **Collect commands at the start of each step:**
@@ -118,12 +124,19 @@ nats-server
 # Terminal 2: OC simengine (with bridge)
 python services/simengine/src/simengine_integrated.py --conf config.json
 
-# Terminal 3: WebSUMO backend (lightweight, serves network GeoJSON + relays NATS)
-python websumo/backend/main.py
+# Terminal 3: WebSUMO backend — disk-less; discovers + fetches everything
+#             over NATS. No scenario files needed on this host.
+SCENARIOS_DIR=/tmp/empty python websumo/backend/main.py
 
-# Browser: http://localhost:8775
+# Browser: http://localhost:8775  → select the scenario, Load, Start.
 # (or add WebSUMO as a service in docker-compose.yaml)
 ```
+
+**No shared files.** Because the bridge serves `sim.{scenario}.net/detectors/routes`
+and publishes state, the WebSUMO backend needs **nothing on its own disk**: it
+discovers the scenario from its live state, fetches the network + overlays over
+NATS on Load, and attaches to OC's sim on Start (it never spawns or kills a
+simengine of its own). No shared `SCENARIOS_DIR`, no volume mounts.
 
 Or in docker-compose (add to your compose file):
 

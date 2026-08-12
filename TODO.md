@@ -8,11 +8,16 @@ priority; effort estimates from the linked research docs.
 WebSUMO exposes a stable NATS interface — the `sim.{scenario}.*` subjects,
 frozen (versioned `v: 1`) in `docs/SIM_PROTOCOL.md`. Integration is implemented
 on the **OC side**, against that interface: OC's simengine publishes
-`sim.{scenario}.state` and consumes `sim.{scenario}.cmd.*` (vendor
-`backend/simbridge.py`, ~15 lines in its step loop — see
-`docs/INTEGRATING_WITH_OC.md`, hand-off summary in
-`docs/OC_INTEGRATION_HANDOFF.md`). WebSUMO stays a pure NATS subscriber;
+`sim.{scenario}.state`, consumes `sim.{scenario}.cmd.*`, and serves the static
+files on `sim.{scenario}.net/detectors/routes` (vendor `backend/simbridge.py`,
+~15 lines in its step loop — see `docs/INTEGRATING_WITH_OC.md`, hand-off summary
+in `docs/OC_INTEGRATION_HANDOFF.md`). WebSUMO stays a pure NATS subscriber;
 `sumo_adapter.py` here is the standalone (no-OC) simengine.
+
+The WebSUMO side is complete and tested **disk-less**: it discovers scenarios
+from live state, fetches the network + detector/route overlays over NATS on Load,
+and attaches to an externally-owned sim on Start (no local `SCENARIOS_DIR`
+needed). Remaining work is OC-side.
 
 Other approaches — the adapter republishing OC's `detector.control.*` /
 `group.control.*` subjects, or a drop-in `nats_traci` transport — were

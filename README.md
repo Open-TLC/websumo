@@ -79,6 +79,11 @@ sim.{scenario}.cmd.select   payload: {"kind": "vehicle"|"tls", "id": ..., "clien
 sim.{scenario}.cmd.spawn    payload: {"edge": "approach_...", "vtype": "car",
                                       "lane": 0 (optional lane index; else 'free')}
                             inject one vehicle of vtype at that entry edge/lane
+sim.{scenario}.net          request-reply: gzipped .net.xml (network geometry)
+sim.{scenario}.detectors    request-reply: gzipped .detectors.xml (optional)
+sim.{scenario}.routes       request-reply: gzipped .rou.xml (optional)
+                            static scenario files — a client renders with nothing
+                            on its own disk (the adapter/simbridge serves them)
 ```
 
 `select` makes the adapter attach an `inspect` block (vehicle: ~24 fields —
@@ -145,10 +150,18 @@ fire-and-forget; they are buffered and applied before the next simulation step.
 WebSUMO exposes a stable NATS interface — the `sim.{scenario}.*` subjects above,
 frozen (versioned `v: 1`) in `docs/SIM_PROTOCOL.md`. Integration is implemented
 on the **OC side** against that interface: OC's simengine publishes
-`sim.{scenario}.state` and consumes `sim.{scenario}.cmd.*` via
-`backend/simbridge.py` (see `docs/INTEGRATING_WITH_OC.md`; hand-off summary in
-`docs/OC_INTEGRATION_HANDOFF.md`). WebSUMO is then a pure NATS subscriber; the
-`sumo_adapter.py` in this repo is the standalone (no-OC) simengine.
+`sim.{scenario}.state`, consumes `sim.{scenario}.cmd.*`, and serves the static
+files on `sim.{scenario}.net/detectors/routes` via `backend/simbridge.py` (see
+`docs/INTEGRATING_WITH_OC.md`; hand-off summary in `docs/OC_INTEGRATION_HANDOFF.md`).
+WebSUMO is then a pure NATS subscriber; the `sumo_adapter.py` in this repo is the
+standalone (no-OC) simengine.
+
+**Disk-less integrated mode.** Because the simengine serves the scenario files
+*and* state over NATS, the WebSUMO backend needs **nothing on its own disk** in
+integrated mode: it discovers the scenario from its live state, fetches the
+network + overlays over NATS on Load, and attaches to OC's sim on Start (never
+spawning or killing a simengine of its own). Run the backend with an empty
+`SCENARIOS_DIR`; standalone mode (local files, disk-first) is unchanged.
 
 Other approaches — the adapter republishing OC's `detector.control.*` /
 `group.control.*` subjects, or a drop-in `nats_traci` transport (see

@@ -68,13 +68,29 @@ In your setup/initialization section (after SUMO is started, before the main ste
 ```python
 # Assume scenario ID is passed as a config or argument
 scenario_id = "fi.helsinki.269"  # or read from config
+net_xml = f"path/to/{scenario_id}.net.xml"
 
-# Load sumolib's network for coordinate conversion
-net = sumolib.net.readNet(f"path/to/{scenario_id}.net.xml", withInternal=False)
+# Load sumolib's network for coordinate conversion (lon/lat in state)
+net = sumolib.net.readNet(net_xml, withInternal=False)
 
-# Initialize the bridge
-bridge = SimBridge(scenario=scenario_id, nats_url="nats://localhost:4222")
+# Initialize the bridge. Passing the scenario's static files makes WebSUMO
+# fully disk-less: it fetches them over NATS and needs nothing on its own host.
+bridge = SimBridge(
+    scenario=scenario_id,
+    nats_url="nats://localhost:4222",
+    files={
+        "net":       net_xml,                                  # required
+        "detectors": f"path/to/{scenario_id}.detectors.xml",   # optional (bars)
+        "routes":    f"path/to/{scenario_id}.rou.xml",         # optional (generators)
+    },
+)
 ```
+
+The `files` are served on `sim.{scenario}.net` / `.detectors` / `.routes`
+(request-reply, gzipped). Missing files are simply not offered — WebSUMO renders
+without that overlay. If you only pass `net_xml_path=net_xml` instead of `files`,
+only the network is served (detectors/generators then need local copies on the
+WebSUMO host).
 
 #### Publish each step's state
 
@@ -185,9 +201,13 @@ def run_integrated(config_path: str):
     net_xml = sumocfg.replace(".sumocfg", ".net.xml")
     net = sumolib.net.readNet(net_xml, withInternal=False)
     
-    # Initialize WebSUMO bridge
+    # Initialize WebSUMO bridge — serve the static files so WebSUMO is disk-less
     logger.info(f"Initializing WebSUMO bridge for scenario: {scenario_id}")
-    bridge = SimBridge(scenario=scenario_id, nats_url="nats://localhost:4222")
+    bridge = SimBridge(scenario=scenario_id, nats_url="nats://localhost:4222", files={
+        "net":       net_xml,
+        "detectors": sumocfg.replace(".sumocfg", ".detectors.xml"),
+        "routes":    sumocfg.replace(".sumocfg", ".rou.xml"),
+    })
     
     paused = False
     speed_req = 1.0
@@ -320,6 +340,32 @@ You should see:
 - Detectors lighting up as vehicles pass
 - Speed/scale/pause controls
 - The same simulation running in OC's control engine
+
+---
+
+## Disk-less operation (integrated mode)
+
+When OC owns the simulation, **WebSUMO needs nothing on its own disk** — it gets
+everything over NATS from your bridge. No shared `SCENARIOS_DIR`, no file copies,
+no volume mounts. The flow is:
+
+1. **Discovery** — the WebSUMO backend subscribes to `sim.>` and lists any
+   scenario that is publishing `sim.{scenario}.state`. As soon as your simengine
+   starts publishing, the scenario appears in the viewer's dropdown.
+2. **Load** — when a scenario has no local `.net.xml`, the backend requests
+   `sim.{scenario}.net` (and `.detectors` / `.routes`) from your bridge, and
+   renders the network. This is why you pass `files={...}` to `SimBridge`.
+3. **Start** — with no local `.sumocfg`, the backend does **not** spawn its own
+   adapter; it **attaches** to your sim and streams `sim.{scenario}.state` to the
+   browser. Your simengine is never killed or duplicated.
+
+So a valid integrated deployment is just: **NATS + OC's simengine (with the
+bridge) + WebSUMO's backend**, with the scenario files only on the OC side. Run
+the backend with an empty (or absent) `SCENARIOS_DIR`; it discovers and renders
+269 purely over NATS.
+
+> WebSUMO still prefers local files when present (standalone mode), so the same
+> backend works both ways with no config switch.
 
 ---
 
