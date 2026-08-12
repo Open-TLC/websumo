@@ -56,7 +56,8 @@ class SimBridge:
 
     def __init__(self, scenario: str, nats_url: str = "nats://localhost:4222",
                  on_command: Optional[Callable[[str, Dict], None]] = None,
-                 net_xml_path: Optional[str] = None):
+                 net_xml_path: Optional[str] = None,
+                 files: Optional[Dict[str, str]] = None):
         """Initialize the bridge.
 
         Args:
@@ -66,25 +67,32 @@ class SimBridge:
             on_command: optional callback(cmd, data) invoked when a command arrives.
                        If provided, commands are passed here instead of queued.
                        Runs in the bridge's async thread; must be fast or re-entrant.
-            net_xml_path: optional path to the scenario's .net.xml. When given, the
-                       bridge answers `sim.{scenario}.net` requests with the gzipped
-                       file, so WebSUMO can render the network without a local copy
-                       (integrated mode needs nothing on the WebSUMO host's disk).
+            net_xml_path: optional path to the scenario's .net.xml — served on
+                       `sim.{scenario}.net` (shorthand for files={'net': path}).
+            files: optional {kind: path} of static scenario files to serve on
+                       `sim.{scenario}.{kind}` (request-reply, gzipped), so a viewer
+                       renders with nothing on its own disk. WebSUMO uses kinds
+                       'net' (.net.xml), 'detectors' (.detectors.xml) and 'routes'
+                       (.rou.xml). Missing files are skipped.
         """
         self.scenario = scenario
         self.nats_url = nats_url
         self.on_command = on_command
 
-        # Read + gzip the network once (static per scenario). 269 is ~125 KB raw,
-        # ~28 KB gzipped — well under the 1 MB core-NATS payload cap.
-        self._net_gz: Optional[bytes] = None
+        # Read + gzip each static file once (static per scenario). 269's net is
+        # ~125 KB raw / ~28 KB gzipped — well under the 1 MB core-NATS cap. Served
+        # on sim.{scenario}.{kind}; missing files are simply not offered.
+        import gzip
+        to_serve = dict(files or {})
         if net_xml_path:
+            to_serve.setdefault("net", net_xml_path)
+        self._served: Dict[str, bytes] = {}
+        for kind, path in to_serve.items():
             try:
-                import gzip
-                with open(net_xml_path, "rb") as f:
-                    self._net_gz = gzip.compress(f.read())
+                with open(path, "rb") as f:
+                    self._served[kind] = gzip.compress(f.read())
             except OSError as e:
-                logger.warning(f"SimBridge: could not read net.xml {net_xml_path}: {e}")
+                logger.warning(f"SimBridge: could not read {kind} file {path}: {e}")
 
         self._nc: Optional[nats.aio.client.Client] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -138,12 +146,12 @@ class SimBridge:
 
             await self._nc.subscribe(f"sim.{self.scenario}.cmd.*", cb=on_cmd_msg)
 
-            # Serve the network on request (integrated mode: WebSUMO renders it
-            # without a local .net.xml). Reply is the gzipped file bytes.
-            if self._net_gz is not None:
-                async def on_net_request(msg: nats.aio.msg.Msg) -> None:
-                    await msg.respond(self._net_gz)
-                await self._nc.subscribe(f"sim.{self.scenario}.net", cb=on_net_request)
+            # Serve static scenario files on request (integrated mode: the viewer
+            # renders with nothing on its own disk). Reply is the gzipped bytes.
+            for kind, gz in self._served.items():
+                async def _on_file(msg: nats.aio.msg.Msg, _gz: bytes = gz) -> None:
+                    await msg.respond(_gz)
+                await self._nc.subscribe(f"sim.{self.scenario}.{kind}", cb=_on_file)
 
             self._ready_event.set()
 
