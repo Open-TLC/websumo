@@ -3,27 +3,36 @@
 Planned features, each with completed feasibility research. Ordered by
 priority; effort estimates from the linked research docs.
 
-## 1. Open Controller integration
+## 1. Open Controller integration (Option 3 — OC owns the sim)
 
-Make the adapter a drop-in replacement for OC's `simengine_integrated.py`.
-Detector occupancy is already read every step — only the republish and the
-command path are missing.
+Integrated mode: OC's `simengine_integrated.py` becomes the simulation master
+and adopts WebSUMO's `sim.{scenario}.*` protocol via `backend/simbridge.py`
+(publishes `sim.{scenario}.state`, drains `sim.{scenario}.cmd.*`). WebSUMO is
+then a **pure NATS subscriber** in integrated mode — no TraCI ownership, no
+`--num-clients` barrier. The adapter (`sumo_adapter.py`) stays as WebSUMO's
+*standalone* (no-OC) simengine only.
 
-- Republish detectors on `detector.control.{det_id}` in OC's format:
-  `{"id", "loop_on", "tstamp"}` (~10 lines)
-- Subscribe to OC's signal commands (`group.control.*`), apply via
-  `trafficlight.setRedYellowGreenState` before next step
-- **First: confirm subject names + payloads against OC's real
-  `simengine_integrated.py` / `clockwork.py`** — `group.control` vs
-  `group.status` is unverified, and OC's subjects are flat (not
-  `sim.{scenario}.*`-scoped), so one broker = one scenario. Decide whether to
-  adopt OC's flat namespace or bridge to scenario-scoped subjects.
-- Validate detector IDs in `oc_controller.json` against `{scenario}.detectors.xml`
-  at startup; log mismatches
+> **Do NOT** build the adapter as a drop-in for OC's simengine — i.e. the
+> adapter republishing `detector.control.*` and applying `group.control.*` via
+> `setRedYellowGreenState`. That is **Option 2**, which was dropped in favour of
+> Option 3 (the bridge). Rebuilding it re-creates the mistake the handoff docs
+> exist to prevent.
+
+The deliverable is mostly on the OC side, and is hand-off ready:
+
+- OC vendors `backend/simbridge.py` and adds ~15 lines to its step loop
+  (publish state after `simulationStep()`, drain commands) —
+  see `docs/INTEGRATING_WITH_OC.md`.
+- The `sim.{scenario}.*` contract is frozen in `docs/SIM_PROTOCOL.md`
+  (versioned `v: 1`); hand-off summary in `docs/OC_INTEGRATION_HANDOFF.md`.
+- **Open question** (`docs/INTEGRATION_ROADMAP.md`): whether OC can run
+  control-engine-only (self-clocked adapter + fire-and-forget signal writes),
+  or needs strict per-step lockstep (roadmap Option C). Confirm before wiring.
 - End-to-end test: OC control engine driving signals on fi.helsinki.269,
-  visible in the viewer
+  visible in the viewer, both attached to the same NATS broker.
 
-**Research:** `docs/NATS_TRACI_REPLACEMENT_RESEARCH.md`, `docs/INTEGRATION_ROADMAP.md`
+**Docs:** `docs/SIM_PROTOCOL.md`, `docs/INTEGRATING_WITH_OC.md`,
+`docs/OC_INTEGRATION_HANDOFF.md`, `docs/INTEGRATION_ROADMAP.md`
 
 ## 2. Element inspector — extend beyond vehicles + TLS
 
@@ -87,7 +96,9 @@ v1 (vehicles + traffic lights) is done — see Done below. Remaining scope:
   See `docs/NETEDIT_WEB_RESEARCH.md`, `docs/NETEDIT_EDITING_ARCHITECTURE.md`
 - **nats_traci client library**: drop-in `import nats_traci as traci` for OC,
   routing TraCI calls over NATS request-reply.
-  See `docs/NATS_TRACI_REPLACEMENT_RESEARCH.md` §3
+  See `docs/NATS_TRACI_REPLACEMENT_RESEARCH.md` §3.
+  *(Superseded by the `simbridge.py` approach in item 1 — kept only as a
+  researched alternative, not a planned build.)*
 - **Day-long demand profiles**: diurnal flow rates (morning/evening peaks)
   belong in graph2sumo demand generation; viewer already supports 24 h runs
   with constant rates

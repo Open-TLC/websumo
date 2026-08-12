@@ -140,33 +140,28 @@ Any NATS client (OC, recorder, custom tool) can subscribe to `sim.{scenario}.sta
 or publish commands to `sim.{scenario}.cmd.*` alongside the browser. Commands are
 fire-and-forget; they are buffered and applied before the next simulation step.
 
-### Planned (for Open Controller integration)
+### Open Controller integration (Option 3 — OC owns the sim)
 
-The command set is intentionally minimal — new subjects are added as needed
-(each is a few lines in `sumo_adapter.py`'s `on_cmd` handler). Detector
-occupancy is already read every step and included in the state message; the
-remaining increment for a drop-in replacement of OC's
-`simengine_integrated.py`:
+Integrated mode follows **Option 3**: OC's `simengine_integrated.py` is the
+simulation master and adopts the `sim.{scenario}.*` protocol above via
+`backend/simbridge.py` — publishing `sim.{scenario}.state` each step and draining
+`sim.{scenario}.cmd.*`. WebSUMO is then a pure NATS subscriber; the
+`sumo_adapter.py` in this repo is the *standalone* (no-OC) simengine only.
 
-```
-detector.control.{det_id}   ← adapter republishes detector occupancy in OC's
-                              format: {"id": ..., "loop_on": bool, "tstamp": ISO8601}
-                              (OC's control engine subscribes to these)
-group.control.{group_id}    ← OC publishes its computed signal states here;
-                              adapter subscribes and applies them via
-                              trafficlight.setRedYellowGreenState
-```
+- Contract (frozen, versioned `v: 1`): **`docs/SIM_PROTOCOL.md`**
+- OC-side integration (vendor `simbridge.py`, ~15 lines in OC's step loop):
+  **`docs/INTEGRATING_WITH_OC.md`**
+- Hand-off summary: **`docs/OC_INTEGRATION_HANDOFF.md`**
+- Option analysis / open questions: **`docs/INTEGRATION_ROADMAP.md`**
 
-**Not yet implemented, and the names above are provisional.** Unlike our
-`sim.{scenario}.*` subjects, OC's detector/group subjects are *flat* (not
-scenario-scoped), so a single broker serves one scenario at a time — running
-two scenarios against one OC would cross-talk. Confirm the exact subject
-spellings and payload shapes against OC's real code before building; `group.*`
-vs the older `group.status.*` naming in particular is unverified here.
-
-A generic request-reply layer (`sumo.{sim}.get/set.{domain}.{var}`) was
-researched (see `docs/NATS_TRACI_REPLACEMENT_RESEARCH.md`) but is deliberately
-not built — specific, validated subjects are added incrementally instead.
+> **Superseded — do not build.** An earlier plan had the adapter act as a
+> drop-in replacement for OC's simengine: republish detectors on
+> `detector.control.{det_id}` and apply OC signal commands from
+> `group.control.{group_id}` via `trafficlight.setRedYellowGreenState`. That is
+> **Option 2**; it was dropped in favour of Option 3 (the bridge). The generic
+> request-reply layer (`sumo.{sim}.get/set.{domain}.{var}`) and a drop-in
+> `nats_traci` transport were also researched
+> (`docs/NATS_TRACI_REPLACEMENT_RESEARCH.md`) but are superseded and not built.
 
 ## Development (hot reload)
 
