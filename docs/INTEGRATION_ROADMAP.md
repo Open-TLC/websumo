@@ -20,10 +20,11 @@ and `.log`); a FastAPI WebSocket relay forwards that to the browser and
 forwards browser commands (`sim.{scenario}.cmd.*`) back. So **Option 1 below
 (a NATS publishing layer) is already done** — WebSUMO is a NATS
 publisher/subscriber, not a TraCI socket owner. The Open Controller (OC) is a
-separate NATS-native project. The direction is now decided (Option 3, above):
-OC owns the simulation and publishes `sim.{scenario}.state`; WebSUMO subscribes
-and renders. The option analysis below is kept for the record of *who owns the
-SUMO process*, with the NATS substrate taken as given.
+separate NATS-native project. Option 3 is **decided and implemented** (see the
+decision note above): OC owns the simulation and publishes `sim.{scenario}.state`
+(and serves the scenario files over NATS); WebSUMO subscribes and renders,
+**file-free**, holding nothing on its own disk. The option analysis below is kept
+as the *record of how we got here* — it is history/rationale, not open planning.
 
 > The subsections below predate the migration and are kept for the option
 > analysis (who should own the simulation). Where they say `session.py`, read

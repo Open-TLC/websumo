@@ -6,24 +6,40 @@ Web-based viewer for SUMO traffic simulations. No X11 required.
 
 ## Architecture
 
+The backend is a thin NATS↔browser relay plus a network renderer. It runs in two
+modes; **file-free (integrated) is the primary mode** — it is what Open Controller
+builds against.
+
+**File-free / integrated (primary).** A simengine — Open Controller, or our own
+`sumo_adapter.py` standing in for it — owns the simulation and serves *everything*
+over NATS: live state **and** the scenario files. The backend holds **no scenario
+files on disk**.
+
 ```
-Browser (deck.gl + MapLibre)
-  ├── GET  /api/scenarios          → list available scenarios
-  ├── GET  /api/network/{scenario} → GeoJSON (lanes, junctions, stop lines)
-  ├── POST /api/adapter/start      → launch libsumo adapter subprocess
-  ├── POST /api/adapter/stop       → stop adapter
-  ├── GET  /api/adapter/log/{scenario} → tail of adapter stderr (startup warnings)
-  └── WS   /api/ws/{scenario}      → stream per-step state + log events
-                  ↕ NATS (localhost:4222)
-        sumo_adapter.py  [libsumo embedded, one process per simulation]
-                  ↕ libsumo (in-process, ~8× faster than TraCI socket)
-             SUMO simulation
+Browser ─WS→ WebSUMO backend ─request/subscribe→ NATS ←─ simengine (owns SUMO/libsumo)
+ deck.gl      (empty SCENARIOS_DIR)                        publishes state + serves
+ MapLibre                                                  net/detectors/routes + state
 ```
 
-The libsumo adapter publishes simulation state to NATS after each step and
-subscribes to command subjects from any connected client (browser, Open
-Controller, recording tools). FastAPI relays NATS ↔ browser WebSocket on the
-same port (8775), so only one port needs to be reachable from the browser.
+**Standalone (secondary).** No external simengine: the backend reads scenario
+files from `SCENARIOS_DIR` on disk and spawns its own `libsumo` adapter on Start.
+
+The HTTP/WS API is the same in both modes; the backend just sources the network
+from disk when present, else over NATS, and on Start it spawns a local adapter
+(standalone) or attaches to the external simengine (integrated):
+
+```
+GET  /api/scenarios          → scenarios (local .sumocfg ∪ live on NATS)
+GET  /api/network/{scenario} → GeoJSON (from local .net.xml, else fetched over NATS)
+POST /api/adapter/start      → spawn a local adapter, or attach to an external sim
+POST /api/adapter/stop
+GET  /api/adapter/log/{scenario}
+WS   /api/ws/{scenario}      → per-step state + log events, relayed from NATS
+```
+
+FastAPI relays NATS ↔ browser WebSocket on port 8775, so only one port needs to
+be reachable from the browser. libsumo runs SUMO in-process (~8× faster than the
+TraCI socket).
 
 ## Dependencies
 
@@ -226,6 +242,10 @@ SUMO scenarios require `.sumocfg` and `.net.xml` files. These can be:
    - Download SUMO's built-in scenarios from the SUMO repository.
 
 Place all scenario files in the directory specified by the `SCENARIOS_DIR` environment variable (defaults to `/tmp/shared/sumotest/`).
+
+In **file-free (primary) mode** these files live with the **simengine** (which
+serves them over NATS), not with the backend — the backend runs against an empty
+`SCENARIOS_DIR`. In **standalone mode** the backend reads them directly.
 
 ## What is visualised
 
