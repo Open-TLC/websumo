@@ -80,6 +80,34 @@ v1 (vehicles + traffic lights) is done — see Done below. Remaining scope:
 
 ---
 
+## Strategic directions (not yet planned in detail)
+
+Two possible future trajectories for the project, worth thinking through before
+committing to either:
+
+- **sumo-gui replacement**: WebSUMO as a general-purpose, community-shareable
+  alternative to `sumo-gui` — i.e. `websumo <sumocfg>` as a drop-in CLI
+  replacement that any SUMO user could install and use. Distinct from the
+  current focus (our own intersection toolchain). Would require broader
+  compatibility testing, packaging, and community positioning.
+  Feasibility studied in detail: `docs/SUMO_GUI_DROPIN_FEASIBILITY.md`
+  (viewer drop-in = feasible small delta; full parity = large web-build;
+  netedit = narrow MVP only). See also `docs/SUMO_GUI_COMMUNITY_RESEARCH.md`
+  for what the SUMO community actually wants from a GUI replacement.
+
+- **Open Controller interface extensions**: the current OC integration
+  (NATS sim.* subjects, `simbridge.py`) is complete and in use. Possible
+  expansions: detector/group control forwarding, a `nats_traci` drop-in
+  transport, or multi-scenario orchestration. Not planned — depends on OC
+  roadmap.
+
+- **Graphics & UI design revision**: the current UI is functional but not
+  visually polished. Worth a dedicated design pass covering colour scheme,
+  layer styling (lanes, crossings, cyclelanes, detectors), panel layout,
+  and mobile/embed-friendliness before any wider sharing.
+
+---
+
 ## Longer-term (researched, not yet scheduled)
 
 - **Web network editor** (netedit replacement): TLS phase editing first
