@@ -19,12 +19,21 @@ from live state, fetches the network + detector/route overlays over NATS on Load
 and attaches to an externally-owned sim on Start (no local `SCENARIOS_DIR`
 needed). Remaining work is OC-side.
 
+**Next chapter (planned, not scheduled): display OC control-plane elements.**
+Today WebSUMO shows what SUMO sees (per-link TLS, raw detector occupancy), not
+what OC sees — signal groups, phase ring/intergreens, indicators (fused
+field-of-view), detector roles, controller state. Initial plan in
+`docs/OC_ELEMENTS_DISPLAY_PLAN.md`: a `--opencontroller` mode that overlays OC's
+NATS state on the network view (the first *geographic* live view of OC, which
+OC's own tabular Dash UI lacks). This is the concrete content of the old
+"detector/group control forwarding" idea below.
+
 Other approaches — the adapter republishing OC's `detector.control.*` /
 `group.control.*` subjects, or a drop-in `nats_traci` transport — were
 considered but are not planned at this stage.
 
 **Docs:** `docs/SIM_PROTOCOL.md`, `docs/INTEGRATING_WITH_OC.md`,
-`docs/OC_INTEGRATION_HANDOFF.md`
+`docs/OC_INTEGRATION_HANDOFF.md`, `docs/OC_ELEMENTS_DISPLAY_PLAN.md`
 
 ## 2. Element inspector — extend beyond vehicles + TLS
 
