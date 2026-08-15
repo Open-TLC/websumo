@@ -19,6 +19,59 @@ scheduled.***
 
 ---
 
+## 0. Implementation status (2026-08-15) — branch `oc-elements-display`
+
+P1 is **built and demoed live** (junction 270, `http://localhost:8775` via
+`run_oc_demo.sh`). What exists now, all committed on the branch (not yet merged):
+
+- **`backend/oc_join.py`** — the validated group↔signal-index join (verified
+  against the live OC bus + net; `group1 → links [0,1]`).
+- **`--opencontroller` backend mode** — `GET /api/oc/join` serves the map; the WS
+  relay forwards OC's `group.status.*` / `detector.status.*` as typed frames.
+- **P1 frontend overlay** — stoplines coloured live by OC group substate, `G#`
+  labels, and a bottom-left panel (per-group live GREEN/red + member links +
+  min/max green + a green-count).
+- **`run_oc_demo.sh`** — one env-configurable command that stages `oc270` from
+  OC's own net, starts the OC-mode backend, and starts **the full OC control
+  loop** (simengine **+ control engine / clockwork** — without the brain the
+  signals sit red).
+- **Coherent-sim mirror (`OC_MIRROR`)** — WebSUMO's own sim mirrors OC's live
+  `group.status.<ctrl>.<idx>` onto its TLS each step, so **the shown vehicles obey
+  OC's control**. Uses the exact per-index mapping (not the positional
+  `group_outputs`), so no fragile re-derivation. Verified 16/16 indices.
+
+**This went beyond the originally-documented P1** (a *read-only monitor*): the
+mirror is a first step toward interactive/coherent operation (it resolves open
+question 4 in the "show OC controlling real traffic" direction).
+
+### Known limitations of the current demo
+- **Actuation source nuance.** OC actuates on *its own* simengine sim's
+  detectors; WebSUMO's sim mirrors the resulting signals. So the shown cars obey
+  OC's signals, but OC is not yet reacting to *those specific* cars' queues. Full
+  coherence = one sim: WebSUMO's adapter publishes `detector.status.*` and OC
+  actuates the shown sim (needs the positional `group.control` application OC
+  owns — Option C territory). See Next steps.
+- **group8 shares group4's stopline** (same approach lane) so it has no separate
+  bar — the per-lane-stopline artifact (§6). 14/15 groups get their own bar.
+- **No scenario scoping** on OC subjects (§4) — fine for the single-engine demo,
+  must be resolved before multi-engine/production.
+
+### Next steps (revised)
+1. **Close the actuation loop** (full single sim): adapter publishes
+   `detector.status.*` in OC's format → OC actuates the *shown* sim → drop the
+   mirror. OC owns the `group.control`→link resolution (Option C), served over
+   NATS. This is the honest "watch OC control real traffic" endpoint.
+2. **P2 — detectors & indicators**: detector roles (request/extender/e3) and the
+   fused `group.e3.*` approach queues on the map (§3 P2).
+3. **P3 — phase ring / intergreen panel** and the controller-status HUD (§3 P3).
+4. **Per-group stoplines** to fix the group8/shared-lane artifact.
+5. **Scenario scoping + Option C** before this is more than a single-junction
+   demo (§4).
+6. **Visual/UX polish** — folds into the TODO "graphics & UI design revision".
+7. **Merge the branch** once P1 + the demo are signed off.
+
+---
+
 ## 1. Motivation — the gap
 
 WebSUMO today renders **what SUMO sees**: per-link TLS colours (`GGrrGGrr`), raw
@@ -349,9 +402,10 @@ Risks / landmines:
 3. **How rich a group state** do we show — wire substates only, or does OC publish
    the controller state machine (`Green_Extending`, `Red_WaitIntergreen`) too?
    Requires an OC-side publish decision (Option B/C).
-4. **Read-only monitor vs interactive** — do we ever let WebSUMO publish
-   `group.control.*` (force a group), duplicating OC UI's control buttons, or stay
-   strictly a viewer?
+4. **Read-only monitor vs interactive** — *partly answered (§0)*: we added the
+   `OC_MIRROR` coherent-sim step (WebSUMO's sim obeys OC's live signals), which is
+   beyond a pure viewer. Still open: do we let WebSUMO *publish* `group.control.*`
+   (force a group), and do we close the actuation loop so OC drives the shown sim?
 5. **Multi-controller scenes** (266-267 coordinated) — in scope, or single
    intersection only for v1?
 6. **Relationship to the sumo-gui drop-in direction** — the `--opencontroller`
