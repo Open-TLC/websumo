@@ -31,6 +31,7 @@ OC_REPO="${OC_REPO:-/repos/graph2sumo/vendor/open_controller}"
 OC_MODEL="${OC_MODEL:-$OC_REPO/models/JS270_DEMO/contr/JS270_DEMO.json}"
 OC_CONTROL_CONF="${OC_CONTROL_CONF:-$OC_REPO/models/testmodel/oc_demo_full_features.json}"  # the OC brain (actuated control of 270)
 SCENARIOS_DIR="${SCENARIOS_DIR:-/tmp/shared/sumotest}"
+OC_SCENARIO="${OC_SCENARIO:-oc270}"           # WebSUMO scenario name OC publishes under
 OC_TESTMODEL="$OC_REPO/models/testmodel"
 SIMSRC="/tmp/oc_demo_simsource.json"          # generated: group.status on every step
 BLOG=/tmp/oc_demo_backend.log
@@ -60,25 +61,22 @@ PY
 )
 [[ -n "$missing" ]] && { echo "ERROR: missing deps:" >&2; echo "$missing" | sed 's/^/  - /' >&2; exit 1; }
 
-# ---- 1. stage the oc270 scenario from OC's own net (so the join matches) ----
+# ---- 1. stage ONLY the net (WebSUMO renders it locally) — no sumocfg, so the
+#         backend ATTACHES to OC's live sim instead of spawning its own adapter.
+#         OC is the single sim: it runs the traffic and publishes it (step 1b). ----
 [[ -f "$OC_TESTMODEL/net/JS270_def.net.xml" ]] \
     || { echo "ERROR: OC net not found under $OC_TESTMODEL (set OC_REPO)" >&2; exit 1; }
 mkdir -p "$SCENARIOS_DIR"
-cp "$OC_TESTMODEL/net/JS270_def.net.xml"         "$SCENARIOS_DIR/oc270.net.xml"
-cp "$OC_TESTMODEL/rou/JS270_cars_medium.rou.xml" "$SCENARIOS_DIR/oc270.rou.xml"
-cp "$OC_TESTMODEL/add/JR_vehicletypes.add.xml"   "$SCENARIOS_DIR/oc270.vtypes.add.xml"
-cat > "$SCENARIOS_DIR/oc270.sumocfg" <<XML
-<?xml version="1.0" encoding="UTF-8"?>
-<configuration>
-  <input>
-    <net-file value="oc270.net.xml"/>
-    <route-files value="oc270.rou.xml"/>
-    <additional-files value="oc270.vtypes.add.xml"/>
-  </input>
-  <time><begin value="0"/><step-length value="0.1"/></time>
-  <processing><ignore-route-errors value="true"/></processing>
-</configuration>
-XML
+cp "$OC_TESTMODEL/net/JS270_def.net.xml" "$SCENARIOS_DIR/$OC_SCENARIO.net.xml"
+rm -f "$SCENARIOS_DIR/$OC_SCENARIO.sumocfg"   # ensure attach, not spawn
+
+# ---- 1b. ensure OC's simengine publishes sim.<scenario>.state for WebSUMO (the
+#          simbridge adoption). Apply the patch if this OC checkout lacks it. ----
+if ! grep -q 'WEBSUMO_PUBLISH' "$OC_REPO/services/simengine/src/simengine.py"; then
+    echo "Applying WebSUMO publish patch to OC simengine…"
+    ( cd "$OC_REPO" && git apply "$HERE/patches/oc-simengine-websumo-publish.patch" ) \
+        || echo "WARNING: could not apply patch — OC may not publish vehicles (see patches/)" >&2
+fi
 
 # ---- 2. demo-local simengine conf: publish group.status EVERY step (not on
 #         change), so signal colours appear immediately in the browser. This is
@@ -111,9 +109,11 @@ echo ""
 curl -sf "http://localhost:$PORT/api/oc/join" | grep -q '"enabled": *true' \
     || { echo "ERROR: OC mode not enabled (see $BLOG)" >&2; tail -5 "$BLOG" >&2; exit 1; }
 
-# ---- 5. OC simengine: the live control-plane source (group.status.270.*) ----
-echo "Starting OC simengine ($OC_MODEL → group.status.270.*)…"
-( cd "$OC_REPO" && setsid python3 services/simengine/src/simengine.py \
+# ---- 5. OC simengine: the single sim. Publishes group.status.270.* (overlay)
+#         AND sim.$OC_SCENARIO.state (the traffic WebSUMO renders, via
+#         WEBSUMO_PUBLISH). WebSUMO attaches to this — it never runs its own sim. ----
+echo "Starting OC simengine (group.status.270.* + sim.$OC_SCENARIO.state)…"
+( cd "$OC_REPO" && WEBSUMO_PUBLISH="$OC_SCENARIO" setsid python3 services/simengine/src/simengine.py \
     --nats-server "$(echo "$NATS_URL" | sed -E 's#.*//([^:]+).*#\1#')" \
     --conf "$SIMSRC" --sumo-conf="models/testmodel/JS270_med_traffic.sumocfg" \
     >"$SLOG" 2>&1 </dev/null & )
@@ -147,9 +147,27 @@ sleep 3
 pgrep -f clockwork.py >/dev/null \
     || { echo "WARNING: control engine did not start — signals will stay red (see $CLOG)" >&2; tail -3 "$CLOG" >&2; }
 
+# ---- 7. confirm OC is publishing its traffic (the closed loop) ----
+echo -n "Waiting for OC to publish its traffic (sim.$OC_SCENARIO.state)"
+for _ in $(seq 1 20); do sleep 1; echo -n "."
+    if python3 - <<PY 2>/dev/null; then break; fi
+import asyncio, nats
+async def m():
+    nc = await asyncio.wait_for(nats.connect("$NATS_URL"), 3)
+    got = {"n": 0}
+    async def cb(_): got["n"] += 1
+    await nc.subscribe("sim.$OC_SCENARIO.state", cb=cb)
+    await asyncio.sleep(1.5); await nc.drain()
+    raise SystemExit(0 if got["n"] else 1)
+asyncio.run(m())
+PY
+done
 echo ""
-echo "✅ OC display demo is up."
-echo "   URL:       http://localhost:$PORT   → select 'oc270', Load, Start"
+
+echo ""
+echo "✅ OC coherent demo is up — WebSUMO renders OC's actual controlled traffic."
+echo "   URL:       http://localhost:$PORT   → select '$OC_SCENARIO', Load, Start (attaches)"
+echo "   what:      OC is the single sim; its cars obey OC's signals and OC reacts to them"
 echo "   OC panel:  15 signal groups; stoplines colour live by OC's actuated control"
 echo "   logs:      backend=$BLOG  simengine=$SLOG  control=$CLOG"
 echo "   stop:      ./run_oc_demo.sh stop"

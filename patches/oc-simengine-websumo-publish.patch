@@ -1,0 +1,41 @@
+diff --git a/services/simengine/src/simengine.py b/services/simengine/src/simengine.py
+index 151c710..b1da422 100644
+--- a/services/simengine/src/simengine.py
++++ b/services/simengine/src/simengine.py
+@@ -274,6 +274,36 @@ class SumoNatsInterface:
+             # This will handle all the data stream from sumo to nats
+             await self.send_statuses_to_nats()
+ 
++            # WebSUMO integration (opt-in): also publish this OC-controlled sim's
++            # full state in WebSUMO's schema, so WebSUMO renders OC's actual
++            # traffic (cars obeying OC). Set WEBSUMO_PUBLISH=<scenario>. This is
++            # the simbridge integration from OC_INTEGRATION_HANDOFF.md, inlined;
++            # off by default so OC's standard behaviour is unchanged.
++            _ws = os.environ.get("WEBSUMO_PUBLISH")
++            if _ws:
++                vehicles = []
++                for vid in traci.vehicle.getIDList():
++                    x, y = traci.vehicle.getPosition(vid)
++                    lon, lat = traci.simulation.convertGeo(x, y)
++                    vehicles.append([vid, lon, lat, traci.vehicle.getAngle(vid),
++                                     traci.vehicle.getLength(vid),
++                                     traci.vehicle.getWidth(vid),
++                                     traci.vehicle.getVehicleClass(vid)])
++                persons = []
++                for pid in traci.person.getIDList():
++                    x, y = traci.person.getPosition(pid)
++                    lon, lat = traci.simulation.convertGeo(x, y)
++                    persons.append([pid, lon, lat, traci.person.getAngle(pid),
++                                    traci.person.getSpeed(pid)])
++                state = {"v": 1, "t": traci.simulation.getTime(),
++                         "vehicles": vehicles, "persons": persons,
++                         "tls": {tid: traci.trafficlight.getRedYellowGreenState(tid)
++                                 for tid in traci.trafficlight.getIDList()},
++                         "detectors": {},
++                         "_empty": traci.simulation.getMinExpectedNumber() == 0}
++                await self.nats.publish("sim." + _ws + ".state",
++                                        json.dumps(state).encode())
++
+             # To sync with realtimer
+             self.system_timer.tick()
+             # Note, if Sumo is stopped by hand, this will try to catch up

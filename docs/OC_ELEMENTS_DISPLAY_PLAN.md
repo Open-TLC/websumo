@@ -35,38 +35,40 @@ P1 is **built and demoed live** (junction 270, `http://localhost:8775` via
   OC's own net, starts the OC-mode backend, and starts **the full OC control
   loop** (simengine **+ control engine / clockwork** — without the brain the
   signals sit red).
-- **Coherent-sim mirror (`OC_MIRROR`)** — WebSUMO's own sim mirrors OC's live
-  `group.status.<ctrl>.<idx>` onto its TLS each step, so **the shown vehicles obey
-  OC's control**. Uses the exact per-index mapping (not the positional
-  `group_outputs`), so no fragile re-derivation. Verified 16/16 indices.
+- **Coherent-sim mirror (`OC_MIRROR`)** — an interim step (now superseded): the
+  WebSUMO adapter mirrored OC's `group.status` onto its own TLS so its vehicles
+  obeyed OC. Kept in the code as an alternative, but the demo now uses the
+  closed-loop attach path below.
+- **Closed actuation loop (attach) — ✅ done.** OC is now the **single sim**: OC's
+  simengine (actuated by clockwork on its own detectors) publishes
+  `sim.<scenario>.state` (the ~30-line **simbridge adoption**, captured in
+  `patches/oc-simengine-websumo-publish.patch`), and WebSUMO **attaches** and
+  renders OC's *actual* controlled traffic + the OC overlay. Cars obey OC and OC
+  reacts to those exact cars — no re-derivation, OC authoritative (the path the
+  issue-#1 review recommended). Verified: `attached:true`, live vehicles +
+  `oc_group` overlay coherent.
 
-**This went beyond the originally-documented P1** (a *read-only monitor*): the
-mirror is a first step toward interactive/coherent operation (it resolves open
-question 4 in the "show OC controlling real traffic" direction).
+**This closed open question 4** in the "show OC controlling real traffic"
+direction — well beyond the originally-documented read-only P1.
 
 ### Known limitations of the current demo
-- **Actuation source nuance.** OC actuates on *its own* simengine sim's
-  detectors; WebSUMO's sim mirrors the resulting signals. So the shown cars obey
-  OC's signals, but OC is not yet reacting to *those specific* cars' queues. Full
-  coherence = one sim: WebSUMO's adapter publishes `detector.status.*` and OC
-  actuates the shown sim (needs the positional `group.control` application OC
-  owns — Option C territory). See Next steps.
+- **OC-side change required.** The closed loop needs OC's simengine to publish
+  `sim.<scenario>.state` (the simbridge adoption). For the demo it's applied to
+  the vendored OC via `patches/oc-simengine-websumo-publish.patch`; upstream OC
+  should adopt it (it's the `OC_INTEGRATION_HANDOFF.md` integration).
 - **group8 shares group4's stopline** (same approach lane) so it has no separate
   bar — the per-lane-stopline artifact (§6). 14/15 groups get their own bar.
 - **No scenario scoping** on OC subjects (§4) — fine for the single-engine demo,
   must be resolved before multi-engine/production.
 
 ### Next steps (revised)
-1. **Close the actuation loop** (full single sim): adapter publishes
-   `detector.status.*` in OC's format → OC actuates the *shown* sim → drop the
-   mirror. OC owns the `group.control`→link resolution (Option C), served over
-   NATS. This is the honest "watch OC control real traffic" endpoint.
-2. **P2 — detectors & indicators**: detector roles (request/extender/e3) and the
+1. **P2 — detectors & indicators**: detector roles (request/extender/e3) and the
    fused `group.e3.*` approach queues on the map (§3 P2).
-3. **P3 — phase ring / intergreen panel** and the controller-status HUD (§3 P3).
-4. **Per-group stoplines** to fix the group8/shared-lane artifact.
-5. **Scenario scoping + Option C** before this is more than a single-junction
+2. **P3 — phase ring / intergreen panel** and the controller-status HUD (§3 P3).
+3. **Per-group stoplines** to fix the group8/shared-lane artifact.
+4. **Scenario scoping + Option C** before this is more than a single-junction
    demo (§4).
+5. **Upstream the simbridge adoption** to OC (it's currently a local patch).
 6. **Visual/UX polish** — folds into the TODO "graphics & UI design revision".
 7. **Merge the branch** once P1 + the demo are signed off.
 
