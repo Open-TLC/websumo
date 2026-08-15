@@ -24,11 +24,12 @@ export function OCPanel({ join, groups }: { join: OcJoin; groups: Record<string,
 
   return (
     <div style={{
-      position: 'absolute', top: 12, left: 12, zIndex: 15,
+      // bottom-left: Controls own the top-left, the inspector the top-right.
+      position: 'absolute', bottom: 12, left: 12, zIndex: 15,
       background: 'rgba(10,10,28,0.92)', border: '1px solid #2a2a4a',
       borderRadius: 6, padding: '8px 10px', fontSize: 11, color: '#9db4d0',
       fontFamily: 'ui-monospace, monospace', lineHeight: 1.5, minWidth: 190,
-      maxHeight: '70vh', overflowY: 'auto',
+      maxHeight: 'calc(100vh - 320px)', overflowY: 'auto',
     }}>
       <div style={{ color: '#8ab4ff', fontWeight: 700, letterSpacing: 1, marginBottom: 4 }}>
         OPEN CONTROLLER · {join.controller}
