@@ -7,6 +7,16 @@ work (`SIM_PROTOCOL.md`, `INTEGRATING_WITH_OC.md`) and the strategic direction i
 `TODO.md` ("Open Controller interface extensions"). Status: **considered, not yet
 scheduled.***
 
+> **Revised 2026-08-15 after OC-side review** (Open-TLC/websumo **issue #1**).
+> Three corrections were folded in and **verified against the OC code**: (1) OC's
+> native subjects carry **no scenario/instance scoping** (a real collision risk —
+> §4); (2) the OC model conf has **no geometry** — the earlier "lanes with
+> coordinates" claim was wrong, the geo join comes from `net.xml` (§2.8, §6); and
+> (3) the group→TLS-link mapping is **positional runtime logic, not a declarative
+> table** (§4, §6). Net effect: the "just load the model file" framing is dropped,
+> and the case for **OC owning the join (Option C)** is now the lead
+> recommendation, not a fallback.
+
 ---
 
 ## 1. Motivation — the gap
@@ -98,13 +108,26 @@ Synthetic detector streams representing safe vs safety-constrained extension —
 consumed by the control engine as extender inputs.
 
 ### 2.8 The static model — `models/<JS>/contr/*.json`
-Per-intersection config: `signal_groups` (with `channel: group.control.270.1`),
-`detectors`, `extenders`, `lanes` (with **coordinates**!), `phases` (the ring),
-`intergreens` (the conflict matrix), and `sumo_name` (the SUMO TLS id). **This is
-the join key**: it maps OC group N ↔ SUMO TLS `sumo_name` ↔ link indices.
+Per-intersection config. Verified `controller` keys (JS270_DEMO.json): `name`,
+`sumo_name` (the SUMO TLS id), `group_outputs`, `signal_groups` (timing only —
+`min/max green/amber/red`, `request_type`, `green_end`; each group's actuation
+channel is `group.control.270.N`), `detectors`
+(`type`/`sumo_id`/`channel`/`request_groups`), `group_list`, `phases` (the ring),
+`intergreens` (the conflict matrix).
+
+> ⚠️ **Correction (issue #1, verified).** An earlier draft said this file has
+> "lanes (with coordinates)". **It does not** — there is no lanes section and
+> **no geometry anywhere in an OC model conf**. (The `Lane` *dataclass* in
+> `control_engine/src/lane.py` has a `coordinates` field, but the model confs
+> don't populate one.) So the model is **not** a geographic join key.
+> **The geo join must come from `net.xml`** — exactly as the existing `sim.*`
+> interface already does for vehicles/persons via
+> `libsumo.simulation.convertGeo`. And the group→link half of the join is not a
+> readable field either — see §4/§6: it is OC's positional runtime logic.
 
 **Consolidated subjects to consume:** `group.status.*`, `group.control.*`,
-`detector.status.*`, `group.e3.*`, `radar.*`, `controller.status.*`.
+`detector.status.*`, `group.e3.*`, `radar.*`, `controller.status.*` — noting
+(§4) that **none of these carry a scenario qualifier**.
 
 ---
 
@@ -114,9 +137,9 @@ Each OC element maps onto WebSUMO's existing render/inspector primitives.
 
 | # | OC element | Data source | WebSUMO rendering | Reuses | Effort |
 |---|---|---|---|---|---|
-| **P1** | **Signal groups on the map** — colour each group's stoplines by OC `substate`, labelled by group id | `group.status.*` + model group→TLS-link map | Extend the existing stopline/TLS-colour layer to group by OC group, show group id badges | stopline layer, TLS colour logic | **M** |
+| **P1** | **Signal groups on the map** — colour each group's stoplines by OC `substate`, labelled by group id | `group.status.*` + **group→link join** (§4: OC-resolved, or re-derived positionally for a demo) | Extend the existing stopline/TLS-colour layer to group by OC group, show group id badges | stopline layer, TLS colour logic | **M** |
 | **P1** | **Group inspector** — click a group: state-machine state, min/max green, request/permit, time-in-state, next-switch | `group.status.*` (+ richer fields if published, §4) | New inspector kind alongside vehicle/TLS | InspectorPanel, cmd.select | **M** |
-| **P2** | **Detectors by role** — request vs extender vs e3, live on/off, which group they serve | `detector.status.*` + model detector map | Recolour/shape existing detector bars by role; link line to owning group | detector bars layer | **S–M** |
+| **P2** | **Detectors by role** — request vs extender vs e3, live on/off, which group they serve | `detector.status.*` + detector→group map from OC conf (`detectors`.`request_groups`/`group`) | Recolour/shape existing detector bars by role; link line to owning group | detector bars layer | **S–M** |
 | **P2** | **Indicators (approach queues)** — per-group count / approaching vehicles as an approach overlay or badge | `group.e3.*` | New overlay: an approach "gauge" near each group; number + colour by count | deck.gl layer + inspector | **M** |
 | **P3** | **Phase ring + intergreen** — a panel showing current/next phase and the conflict matrix, with the active group highlighted on the map | model `phases`/`intergreens` + live `group.status.*` | New side panel (matrix/ring widget); hover a cell → highlight the two groups on the map | new panel | **M–L** |
 | **P3** | **Radar objects** — OC's radar-detected objects (may differ from SUMO ground truth) | `radar.*` | Scatter layer (like persons); toggle | vehicle/person layer | **S** |
@@ -131,36 +154,66 @@ OC control.
 
 ## 4. Data-source strategy — how OC state reaches WebSUMO
 
-Three options; they trade "clean WebSUMO interface" against "OC-side work".
+Two hard constraints from the OC review (issue #1) shape this section — both
+**verified against the OC code**:
 
-**Option A — WebSUMO subscribes to OC's native subjects directly (recommended
-for a monitor).** In `--opencontroller` mode WebSUMO connects to the same NATS and
+- **No scenario scoping on OC subjects.** OC subjects are built as
+  `topic_prefix + "." + id` in `simengine/src/outputs.py` (e.g.
+  `messages[self.topic_prefix + "." + group_id]`) — there is **no per-run or
+  per-scenario qualifier at all**. This is not hypothetical: the `sumo_name`
+  `270_Tyyn_Vali` is reused across **six** controller confs pointing at **three**
+  different sumocfgs (`JS270_DEMO`, `FIELD_DEMO_1124`, two `testmodel` variants).
+  Two OC engines with overlapping intersection numbering publish **interleaved
+  state on the same subjects**, with nothing to detect it. Whatever
+  collision-handling we design for `sim.{scenario}.*` needs a **separate,
+  stricter answer here**, because these subjects carry no identity to key on.
+- **The group→SUMO-link mapping is positional runtime logic, not a table.**
+  `PhaseRingController.get_sumo_states()`
+  (`control_engine/src/signal_group_controller.py`) builds the RYG string by
+  concatenating each output group's state **in `group_outputs` order**, matched
+  *positionally* against SUMO's own `getControlledLinks()` order — and
+  `group_outputs` **repeats** a group name when it drives more than one link
+  (verified: JS270's `group_outputs` starts `["group1","group1","group2",…]`).
+  There is no field to read; reconstructing the join externally means
+  **replicating OC's positional logic exactly**.
+
+Three options, now re-weighted by those constraints:
+
+**Option A — WebSUMO subscribes to OC's native subjects directly (fastest demo
+only).** In `--opencontroller` mode WebSUMO connects to the same NATS and
 subscribes `group.status.*`, `detector.status.*`, `group.e3.*`, `group.control.*`,
-`controller.status.*`. It loads the OC model `contr/*.json` (or a derived mapping)
-to join group↔TLS↔lane. **Zero OC changes.** WebSUMO is a pure read-only monitor,
-exactly what it already is for `sim.*`. Downside: WebSUMO must understand OC's
-flat subject scheme and per-intersection numbering, and needs the model file for
-the geographic join.
+`controller.status.*`. **Zero OC changes.** But it inherits *both* problems above:
+WebSUMO would have to (a) assume a single unambiguous OC engine on the bus (no
+scenario key to disambiguate) and (b) **re-derive the positional group→link
+mapping** itself from `group_outputs` + `getControlledLinks()`. Acceptable for a
+one-intersection demo on a controlled bus; **not** safe as a product.
 
 **Option B — OC publishes an overlay on the scoped interface
 (`sim.{scenario}.oc.state`).** The bridge/simengine republishes a *pre-joined*,
-WebSUMO-shaped OC snapshot (groups with geometry-ready ids, indicator counts,
-phase index) under the existing `sim.{scenario}.*` namespace. Keeps WebSUMO's
-clean contract; keeps WebSUMO dumb about OC internals. Costs ~a screenful of
-publisher code on the OC/bridge side and a `v:1` schema addition to
-`SIM_PROTOCOL.md`. This is the same shape as our existing net/detectors/routes
-request-reply.
+scenario-scoped OC snapshot (each group already resolved to its SUMO link
+indices, plus indicator counts and phase index) under the existing
+`sim.{scenario}.*` namespace. Fixes **both** constraints at once: it inherits the
+scenario scope of `sim.{scenario}.*`, and OC — the only party that knows its own
+positional logic — resolves the group→link mapping. Costs a screenful of
+publisher code on the OC side and a `v:1` schema addition to `SIM_PROTOCOL.md`.
 
-**Option C — hybrid.** WebSUMO consumes native OC subjects (A) for the live
-stream but fetches the **static join map** once via a request-reply
-(`sim.{scenario}.oc.model`) so it doesn't need the model file on disk. Best
-disk-less story; small OC-side addition.
+**Option C — hybrid (recommended target).** Live OC state still flows on the
+scoped overlay (or, for a lean start, native subjects on a known-single-engine
+bus), but the **group→link join is resolved once by OC** and served via
+request-reply `sim.{scenario}.oc.model` (same shape as the existing
+`.net`/`.detectors`/`.routes` serving). This is the OC team's own suggested
+path in issue #1: OC owns the positional resolution; WebSUMO just reads the
+resolved map and does the **geo** half from `net.xml` (`convertGeo`), exactly as
+it already does for vehicles/persons.
 
-**Recommendation:** prototype with **A** (nothing to change in OC, fastest path to
-a demo), then, if it graduates from monitor to product, move the join/scoping to
-**C** so WebSUMO keeps its clean, disk-less, scoped interface and OC stays the
-authority. Either way this is the concrete content of the currently-vague
-"detector/group control forwarding" bullet in `TODO.md` — and it supersedes the
+**Recommendation (revised):** prototype the **P1 demo** with **A** on a single,
+known intersection with one OC engine on the bus — accepting that WebSUMO
+re-derives the positional mapping for that one case. For anything beyond the demo,
+**go to C**: OC owns the group→link join (it's OC's logic) and the scenario
+scope, WebSUMO owns the geography. Do **not** ship Option A as a product — the
+no-scoping collision risk and the externally-re-derived positional mapping are
+both foot-guns. This is the concrete content of the currently-vague
+"detector/group control forwarding" bullet in `TODO.md`, and it supersedes the
 old `NATS_TOPOLOGY_RESEARCH.md` leaf-node bridging sketch (that doc's `deny`
 rules were about *not* leaking `sim.*`; here we deliberately bridge the OC
 control-plane subjects the other way).
@@ -187,9 +240,11 @@ Why expand, not fork:
   subjects and light up the OC layers/panels. This mirrors how the V2X overlays
   are already optional toggles.
 
-Concretely the flag would: (1) subscribe to the OC subject set, (2) load/fetch
-the OC join map, (3) enable the OC render layers (group colouring, detector
-roles, indicator gauges) and the OC panels (group inspector, phase/intergreen).
+Concretely the flag would: (1) subscribe to the OC subject set, (2) obtain the
+group→link join (§4: OC-served map, or re-derived positionally for a demo) and
+do the geo half from `net.xml`, (3) enable the OC render layers (group colouring,
+detector roles, indicator gauges) and the OC panels (group inspector,
+phase/intergreen).
 Everything is **read-only** first; interactive control (publishing
 `group.control.*` to force a group — like OC's UI "Control Messages" buttons)
 is a later, clearly-gated step.
@@ -207,11 +262,15 @@ What it touches, and the difficulty:
 - **`backend/main.py` NATS relay** — add the OC subject subscriptions (behind the
   flag) and fold OC state into the WebSocket frames (or a parallel `oc` frame).
   *Low–medium.* Same pattern as the existing `sim.*` relay.
-- **`backend/network.py`** — needs the **group↔TLS-link↔lane join**. Today it
-  already extracts TLS links and stoplines; it must additionally group them by OC
-  group id from the OC model. *Medium* — this is the real new logic. graph2sumo
-  already carries signal-group data (`map_extraction*.ttl`), so the mapping exists
-  upstream; the question is threading it through (model file vs a request-reply).
+- **`backend/network.py`** — the **geo** side of the join: it already extracts
+  TLS links, stoplines and lane geometry from `net.xml`, and geo-converts (the
+  same `convertGeo`/`sumolib` path used for the existing interface). What it must
+  *add* is grouping those links by OC group id — using the **group→link map that
+  OC resolves** (§4 Option C), **not** an OC model file (which has no geometry and
+  no readable link map). *Medium.* Note: graph2sumo also carries signal-group data
+  (`map_extraction*.ttl`); whether the authoritative join comes from OC at runtime
+  or from graph2sumo at build time is [open question 1](#8-open-questions) — but
+  it does **not** come from the OC model conf.
 - **Frontend `MapView` / layers** — new deck.gl layers (group colouring, detector
   roles, indicator gauges, radar scatter). *Medium*, additive; the layer model is
   already data-driven.
@@ -222,21 +281,28 @@ What it touches, and the difficulty:
   schema. *Low.*
 
 Risks / landmines:
-1. **The join map is the crux.** OC group numbering ↔ SUMO `sumo_name` ↔ TLS link
-   indices ↔ lanes must be exact or the map lies. Needs the OC model (or a
-   graph2sumo-emitted mapping). *Mitigation:* build the join once, validate
-   against a known intersection (269/270) visually.
-2. **Substate vocabulary.** OC's single-char substates (`r/g/a/b/B/F/…`) and the
+1. **The group→link join is the crux — and it's OC's positional logic, not a
+   table** (issue #1, verified). The RYG string is `group_outputs`-order
+   concatenation matched against `getControlledLinks()`, with `group_outputs`
+   repeating a group per extra link. Re-deriving it externally must replicate that
+   exactly. *Mitigation:* have **OC resolve and serve** the map (§4 Option C);
+   only re-derive it for a single-intersection demo, validated visually on 270.
+2. **No scenario scoping on OC subjects** (issue #1, verified). `topic_prefix+id`
+   with no run qualifier, and intersection numbers reused across confs/sumocfgs —
+   two engines can interleave on one subject undetected. *Mitigation:* the scoped
+   overlay (§4 Option B/C) inherits `sim.{scenario}.*` identity; for a demo,
+   guarantee a single OC engine on the bus.
+3. **Substate vocabulary.** OC's single-char substates (`r/g/a/b/B/F/…`) and the
    controller's rich state-machine states are two different granularities; decide
    which we show (wire has substates; rich states need §4 Option B/C to be
    published).
-3. **Multi-intersection.** OC runs several controllers (266-267 coordinated); OC
+4. **Multi-intersection.** OC runs several controllers (266-267 coordinated); OC
    subjects are per-intersection. WebSUMO is single-scenario today — coordinated
    junctions may need multi-controller display. *Defer past P1.*
-4. **Two UIs, one story.** Keep clear that OC's Dash UI owns config/tables and
+5. **Two UIs, one story.** Keep clear that OC's Dash UI owns config/tables and
    WebSUMO owns the geographic live view — avoid re-implementing OC's editable
    tables.
-5. **Licensing.** OC is **EUPL-1.2**; WebSUMO is Apache-2.0. Consuming OC over
+6. **Licensing.** OC is **EUPL-1.2**; WebSUMO is Apache-2.0. Consuming OC over
    NATS (no code linking) is fine; if we ever vendor OC parsing code, check
    EUPL↔Apache compatibility.
 
@@ -244,35 +310,51 @@ Risks / landmines:
 
 ## 7. Suggested first slice (a demo, not a product)
 
-1. **Build the join** for one intersection (270): OC model `contr/JS270_DEMO.json`
-   → `{group_id → [TLS link indices], → lanes, → detectors}`. Validate visually.
+1. **Build the group→link join** for one intersection (270). The geo half comes
+   from `net.xml` (`getControlledLinks()` + `convertGeo`); the group→link half is
+   **re-derived from OC's positional logic** (`group_outputs` order vs
+   `getControlledLinks()`, honouring repeats) for this one case — see §4. Validate
+   visually. *(This is a throwaway demo derivation; the product path is OC serving
+   the resolved map.)*
 2. **`--opencontroller` flag** subscribes `group.status.270.*` and
-   `detector.status.*`; relay to the browser (Option A).
+   `detector.status.*` on a bus with a **single** OC engine (no scenario key yet);
+   relay to the browser (Option A).
 3. **P1 render**: colour stoplines by OC group + group-id badges; **group
    inspector** (state, request/permit, timers) on click.
 4. **P2 add**: detector role colouring + indicator (`group.e3.270.*`) count badges
    per approach.
-5. Demo against the running OC stack (266/270). If it lands, promote the join to a
-   `sim.{scenario}.oc.model` request-reply (Option C) and freeze an `oc` schema in
-   `SIM_PROTOCOL.md`.
+5. Demo against the running OC stack (266/270). If it lands, move to **Option C**:
+   OC serves the resolved group→link map via `sim.{scenario}.oc.model`
+   request-reply and publishes scenario-scoped OC state; freeze an `oc` schema in
+   `SIM_PROTOCOL.md`. This also resolves the no-scoping and positional-logic
+   landmines for good.
 
 ---
 
 ## 8. Open questions
 
-1. **Join source**: ship WebSUMO the OC `contr/*.json`, or have graph2sumo emit a
-   group↔TLS↔lane map (it already has the signal-group RDF), or add a
-   `sim.{scenario}.oc.model` request-reply? (Leaning: graph2sumo-emitted map — it
-   already owns the signal-group data via `map_extraction*.ttl`.)
-2. **How rich a group state** do we show — wire substates only, or does OC publish
+1. **Join source** (the OC conf is ruled out — no geometry, no readable link map).
+   Two live candidates: **(a)** OC resolves and serves the group→link map at
+   runtime via `sim.{scenario}.oc.model` (§4 Option C — OC owns its positional
+   logic, issue #1's recommendation); **(b)** graph2sumo emits a group↔TLS-link
+   map at build time (it already owns the signal-group RDF in
+   `map_extraction*.ttl`) — but this must be validated to match OC's *runtime*
+   `group_outputs` ordering, since that's what actually drives the links. (Leaning
+   **a** for correctness — OC is the authority on its own link ordering; **b** is
+   attractive only if it can be proven equivalent.)
+2. **Scenario scoping** (issue #1): what identifier disambiguates two OC engines
+   with overlapping intersection numbers on one bus? The scoped overlay (Option
+   B/C) inherits `sim.{scenario}.*` identity — is that the answer, or does OC need
+   a scenario/instance qualifier on its native subjects too?
+3. **How rich a group state** do we show — wire substates only, or does OC publish
    the controller state machine (`Green_Extending`, `Red_WaitIntergreen`) too?
    Requires an OC-side publish decision (Option B/C).
-3. **Read-only monitor vs interactive** — do we ever let WebSUMO publish
+4. **Read-only monitor vs interactive** — do we ever let WebSUMO publish
    `group.control.*` (force a group), duplicating OC UI's control buttons, or stay
    strictly a viewer?
-4. **Multi-controller scenes** (266-267 coordinated) — in scope, or single
+5. **Multi-controller scenes** (266-267 coordinated) — in scope, or single
    intersection only for v1?
-5. **Relationship to the sumo-gui drop-in direction** — the `--opencontroller`
+6. **Relationship to the sumo-gui drop-in direction** — the `--opencontroller`
    mode and the standalone `websumo <sumocfg>` drop-in are two front doors on the
    same engine; keep the OC layers strictly optional so the drop-in stays generic.
 
