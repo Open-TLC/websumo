@@ -21,9 +21,17 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from network import build_network_geojson
+import oc_join
 
 SCENARIOS_DIR = os.environ.get('SCENARIOS_DIR', '/tmp/shared/sumotest')
 NATS_URL      = os.environ.get('NATS_URL', 'nats://localhost:4222')
+# Open Controller display mode (--opencontroller). When on, the WS relay also
+# forwards OC's control-plane subjects (group.status.*, detector.status.*) and
+# /api/oc/join serves the group↔signal-index map. OC_MODEL points at the OC
+# controller config used to build that join. Both off by default: standalone
+# WebSUMO is unaffected. See docs/OC_ELEMENTS_DISPLAY_PLAN.md.
+OPENCONTROLLER = os.environ.get('OPENCONTROLLER', '').lower() in ('1', 'true', 'yes', 'on')
+OC_MODEL       = os.environ.get('OC_MODEL', '')
 FRONTEND_DIST = pathlib.Path(__file__).parent.parent / 'frontend' / 'dist'
 ADAPTER_SCRIPT = pathlib.Path(__file__).parent / 'sumo_adapter.py'
 FUSION_SCRIPT  = pathlib.Path(__file__).parent / 'fcd_fusion.py'   # V2X LDM merge
@@ -290,6 +298,27 @@ def stop_adapter() -> dict:
     return {'ok': True}
 
 
+@api.get('/oc/join')
+def get_oc_join() -> dict:
+    """OC group↔signal-index join for --opencontroller mode.
+
+    Returns the index→group map, per-group member links + timing, and the
+    subject key, built from the OC controller config at OC_MODEL. The browser
+    combines this with the network GeoJSON (stoplines carry tls_id + sig_idx) to
+    colour and label OC groups. `enabled: false` when OC mode is off so the
+    frontend can cleanly no-op.
+    """
+    if not OPENCONTROLLER:
+        return {'enabled': False, 'reason': 'OPENCONTROLLER not set'}
+    if not OC_MODEL or not pathlib.Path(OC_MODEL).is_file():
+        return {'enabled': False, 'reason': f'OC_MODEL not found: {OC_MODEL!r}'}
+    try:
+        join = oc_join.build_join_from_controller_conf(OC_MODEL)
+    except Exception as exc:   # malformed config shouldn't 500 the UI
+        return {'enabled': False, 'reason': f'join build failed: {exc}'}
+    return {'enabled': True, **join.to_frontend()}
+
+
 @api.websocket('/ws/{scenario}')
 async def ws_endpoint(websocket: WebSocket, scenario: str) -> None:
     """Relay NATS simulation state → browser, and browser commands → NATS."""
@@ -325,6 +354,25 @@ async def ws_endpoint(websocket: WebSocket, scenario: str) -> None:
         except Exception:
             pass
 
+    async def on_oc_group(msg: nats_client.aio.msg.Msg) -> None:
+        # OC signal-group state: group.status.<ctrl>.<sig_idx> → {substate}. The
+        # browser joins <ctrl>.<sig_idx> to stoplines via /api/oc/join.
+        try:
+            d = json.loads(msg.data)
+            await websocket.send_json({'type': 'oc_group', 'subject': msg.subject,
+                                       'substate': d.get('substate')})
+        except Exception:
+            pass
+
+    async def on_oc_detector(msg: nats_client.aio.msg.Msg) -> None:
+        # OC detector pulse: detector.status.<id> → {loop_on}
+        try:
+            d = json.loads(msg.data)
+            await websocket.send_json({'type': 'oc_detector', 'subject': msg.subject,
+                                       'loop_on': d.get('loop_on')})
+        except Exception:
+            pass
+
     await nc.subscribe(f'sim.{scenario}.state', cb=on_state)
     await nc.subscribe(f'sim.{scenario}.end',   cb=on_end)
     # log payloads already carry {"type": "log"} — forward verbatim like state
@@ -332,6 +380,12 @@ async def ws_endpoint(websocket: WebSocket, scenario: str) -> None:
     # V2X: '>' (multi-token) because scenario/vehicle ids contain dots
     await nc.subscribe(f'kg.{scenario}.fcd.>',  cb=on_fcd)
     await nc.subscribe(f'kg.{scenario}.ldm',    cb=on_ldm)
+    # OC display mode: OC subjects are flat/unscoped (no scenario token), so we
+    # subscribe the whole tree. Safe for the P1 single-engine demo bus; the
+    # scenario-collision landmine is tracked in docs/OC_ELEMENTS_DISPLAY_PLAN.md §4.
+    if OPENCONTROLLER:
+        await nc.subscribe('group.status.>',    cb=on_oc_group)
+        await nc.subscribe('detector.status.>', cb=on_oc_detector)
 
     try:
         while True:
