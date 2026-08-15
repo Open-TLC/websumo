@@ -15,6 +15,12 @@ import nats
 import sumolib
 
 SCENARIOS_DIR = os.environ.get('SCENARIOS_DIR', '/tmp/shared/sumotest')
+# OC coherent-demo mode: mirror Open Controller's live signal state onto this
+# sim's traffic lights each step, so the vehicles shown obey OC's control. OC
+# publishes group.status.<ctrl>.<sigIdx> where sigIdx is the raw SUMO signal
+# index (see backend/oc_join.py), so the mapping is per-index and exact — no
+# positional group_outputs logic needed. See docs/OC_ELEMENTS_DISPLAY_PLAN.md.
+OC_MIRROR = os.environ.get('OC_MIRROR', '').lower() in ('1', 'true', 'yes', 'on')
 
 # ---- V2X experiment: floating-car egocentric knowledge graphs -----------------
 # Ground SUMO ids onto the static intersection graph's opencontroller.org IRIs.
@@ -421,6 +427,29 @@ def _stretch_flows(scenario: str, end_time: int) -> str:
     return dst
 
 
+def _apply_oc_tls(oc_states: dict) -> None:
+    """Mirror OC's live signal state onto this sim's traffic lights (OC_MIRROR).
+
+    For each TLS, key = id.split('_')[0] (e.g. '270_Tyyn_Vali' → '270') and each
+    signal index i takes OC's substate from `group.status.<key>.<i>` when known,
+    else keeps the current char. Runs in the libsumo executor thread, before the
+    step, so vehicles react to OC's signals within the same step.
+    """
+    if not oc_states:
+        return
+    for tid in traci.trafficlight.getIDList():
+        key = tid.split('_')[0]
+        cur = list(traci.trafficlight.getRedYellowGreenState(tid))
+        changed = False
+        for i in range(len(cur)):
+            s = oc_states.get(f'{key}.{i}')
+            if s and s != cur[i]:
+                cur[i] = s
+                changed = True
+        if changed:
+            traci.trafficlight.setRedYellowGreenState(tid, ''.join(cur))
+
+
 async def run(scenario: str, nats_url: str, end_time: int | None = None,
               init_scale: float = 1.0, init_speed: float = 1.0) -> None:
     nc = await nats.connect(nats_url)
@@ -515,6 +544,19 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
 
     await nc.subscribe(f'sim.{scenario}.cmd.*', cb=on_cmd)
 
+    # OC coherent-demo mode: track OC's live per-signal-index state and mirror it
+    # onto this sim's TLS each step (below), so the shown vehicles obey OC.
+    oc_states: dict[str, str] = {}   # "<ctrl>.<sigIdx>" -> substate char (r/g/y/G/…)
+    if OC_MIRROR:
+        async def on_oc_status(msg: nats.aio.msg.Msg) -> None:
+            try:
+                d = json.loads(msg.data)
+                parts = msg.subject.split('.')          # group.status.<ctrl>.<idx>
+                oc_states['.'.join(parts[2:-1]) + '.' + parts[-1]] = d.get('substate', '')
+            except Exception:
+                pass
+        await nc.subscribe('group.status.>', cb=on_oc_status)
+
     # Serve the static scenario files on request (same contract as simbridge —
     # see SIM_PROTOCOL.md `sim.{scenario}.{net,detectors,routes}`), so a backend
     # with no local scenario files can render this sim fully over NATS. Gzipped;
@@ -588,6 +630,10 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
             if 'scale' in pending:
                 scale = pending.pop('scale')
                 await loop.run_in_executor(executor, traci.simulation.setScale, scale)
+
+            # OC coherent mode: stamp OC's live signals onto the TLS before stepping
+            if OC_MIRROR:
+                await loop.run_in_executor(executor, _apply_oc_tls, oc_states)
 
             t_start = time.monotonic()
             if next_step is None:

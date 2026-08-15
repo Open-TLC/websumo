@@ -244,11 +244,15 @@ def start_adapter(req: StartRequest) -> dict:
     _kill_orphans()
 
     log = open(f'/tmp/sumo_adapter_{req.scenario}.log', 'w')
+    # OC coherent mode: tell the adapter to mirror OC's live signals onto its TLS
+    # so the shown vehicles obey Open Controller.
+    adapter_env = {**os.environ, 'OC_MIRROR': '1'} if OPENCONTROLLER else None
     _adapter_proc = subprocess.Popen(
         [sys.executable, str(ADAPTER_SCRIPT), req.scenario, str(req.end or 0),
          str(req.scale), str(req.speed)],
         stdout=log,
         stderr=log,
+        env=adapter_env,
     )
     # V2X: the LDM fusion node shares the adapter's lifecycle — it only makes
     # sense while a sim runs. It just subscribes to the fcd stream; if it fails
