@@ -3,7 +3,8 @@ import { Controls } from './Controls'
 import { InspectorPanel, type Selected } from './InspectorPanel'
 import { LogPanel, type LogEntry } from './LogPanel'
 import { MapView, type MapViewHandle } from './MapView'
-import { SimSocket, type InspectBlock, type FcdGraph, type Ldm } from './ws'
+import { OCPanel } from './OCPanel'
+import { SimSocket, type InspectBlock, type FcdGraph, type Ldm, type OcJoin } from './ws'
 
 type SimState = 'idle' | 'running' | 'paused' | 'ended'
 
@@ -29,6 +30,8 @@ export default function App() {
   const [ldmOn, setLdmOn] = useState(false)                        // V2X: LDM overlay toggle
   const [genVtypes, setGenVtypes] = useState<string[]>([])   // vTypes offered by the loaded network
   const [genVtype, setGenVtype] = useState('')               // currently selected injection vType
+  const [ocJoin, setOcJoin] = useState<OcJoin | null>(null)  // OC display mode: group↔link join
+  const [ocGroups, setOcGroups] = useState<Record<string, string>>({})  // "<key>.<sigIdx>" → substate
 
   const mapRef    = useRef<MapViewHandle>(null)
   const sockRef   = useRef<SimSocket>(new SimSocket())
@@ -48,6 +51,8 @@ export default function App() {
   // a select sent right after Start can beat the adapter's NATS subscription
   // and be dropped — re-send once the first state message proves it's up
   const resendSelectRef = useRef(false)
+  // OC display mode: accumulate per-signal-index substates across frames
+  const ocGroupsRef = useRef<Record<string, string>>({})
 
   useEffect(() => {
     fetch('/api/scenarios')
@@ -58,6 +63,20 @@ export default function App() {
         if (list.length > 0) setScenario(list.find((s) => s.includes('269')) ?? list[0])
       })
       .catch(console.error)
+  }, [])
+
+  // OC display mode: fetch the group↔link join once. `enabled:false` (OC mode
+  // off) leaves everything null and the OC overlay/panel simply don't render.
+  useEffect(() => {
+    fetch('/api/oc/join')
+      .then((r) => r.json())
+      .then((j: OcJoin) => {
+        if (j.enabled) {
+          setOcJoin(j)
+          mapRef.current?.setOcJoin(j)
+        }
+      })
+      .catch(() => {})
   }, [])
 
   const handleLoad = useCallback(() => {
@@ -135,6 +154,14 @@ export default function App() {
       sock.onLdm = (l) => {
         setLdm(l)                 // for the stats chip
         mapRef.current?.setLdm(l) // for the map overlay
+      }
+      // OC display mode: accumulate per-signal-index substate; push a fresh
+      // object each time so both the panel (state) and the map (deck triggers)
+      // see a new identity.
+      sock.onOcGroup = (key, sigIdx, sub) => {
+        ocGroupsRef.current = { ...ocGroupsRef.current, [`${key}.${sigIdx}`]: sub }
+        setOcGroups(ocGroupsRef.current)
+        mapRef.current?.setOcGroups(ocGroupsRef.current)
       }
       sock.connect(scenario)
 
@@ -336,6 +363,7 @@ export default function App() {
           onClose={handleDeselect}
         />
       )}
+      {ocJoin?.enabled && <OCPanel join={ocJoin} groups={ocGroups} />}
       {ldmOn && ldm && (
         <div style={{
           position: 'absolute', bottom: 12, left: 12, zIndex: 15,

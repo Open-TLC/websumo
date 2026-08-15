@@ -2,8 +2,8 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { MapboxOverlay } from '@deck.gl/mapbox'
-import { PolygonLayer, LineLayer, ScatterplotLayer } from '@deck.gl/layers'
-import type { Vehicle, Person, Ldm, LdmObject } from './ws'
+import { PolygonLayer, LineLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers'
+import type { Vehicle, Person, Ldm, LdmObject, OcJoin } from './ws'
 
 export interface MapViewHandle {
   updateStep: (vehicles: Vehicle[], tls: Record<string, string>, detectors: Record<string, boolean>, persons: Person[], t: number) => void
@@ -13,6 +13,10 @@ export interface MapViewHandle {
   setFcd: (graph: Record<string, unknown> | null) => void
   setLdm: (ldm: Ldm | null) => void
   setLdmOn: (on: boolean) => void
+  // OC display mode: the join map (subject_key + sigIdx→group) and the live
+  // per-signal-index substate stream (keyed "<subject_key>.<sigIdx>").
+  setOcJoin: (join: OcJoin | null) => void
+  setOcGroups: (groups: Record<string, string>) => void
 }
 
 interface Props {
@@ -59,6 +63,17 @@ function tlsColor(stateStr: string | undefined, sigIdx: number): [number, number
     case 'Y': return [230, 200, 0, 255]
     default:  return [140, 140, 140, 180]
   }
+}
+
+// OC substate is a single char (the SUMO RYG char the simengine forwards).
+function ocColor(sub: string | undefined): [number, number, number, number] {
+  return tlsColor(sub, 0)
+}
+
+// "group1" → "G1" for a compact on-map label.
+function ocShortLabel(group: string): string {
+  const m = group.match(/(\d+)\s*$/)
+  return m ? `G${m[1]}` : group
 }
 
 // V2X overlay: colour the "approaching" link by the next signal's state char
@@ -143,6 +158,9 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
   // V2X: fused shared Local Dynamic Map + whether its overlay is on
   const ldmRef = useRef<Ldm | null>(null)
   const ldmOnRef = useRef(false)
+  // OC display mode: the join map + live substate per "<subject_key>.<sigIdx>"
+  const ocJoinRef = useRef<OcJoin | null>(null)
+  const ocGroupsRef = useRef<Record<string, string>>({})
   const lastStepRef = useRef<{ vehicles: Vehicle[]; tls: Record<string, string>; detectors: Record<string, boolean>; persons: Person[] }>(
     { vehicles: [], tls: {}, detectors: {}, persons: [] })
   const onPickRef = useRef(onPick)
@@ -240,11 +258,43 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
           data: stopLinesRef.current,
           getSourcePosition: (d) => d.from,
           getTargetPosition: (d) => d.to,
-          getColor: (d) => tlsColor(tls[d.tlsId], d.sigIdx),
-          getWidth: 3,
+          // OC mode: colour by the OC group's live substate when we have one for
+          // this signal index; otherwise fall back to SUMO's TLS state.
+          getColor: (d) => {
+            const join = ocJoinRef.current
+            if (join?.enabled) {
+              const sub = ocGroupsRef.current[`${d.tlsId.split('_')[0]}.${d.sigIdx}`]
+              if (sub != null) return ocColor(sub)
+            }
+            return tlsColor(tls[d.tlsId], d.sigIdx)
+          },
+          getWidth: ocJoinRef.current?.enabled ? 5 : 3,
           widthUnits: 'pixels',
-          updateTriggers: { getColor: tls },
+          updateTriggers: {
+            getColor: [tls, ocGroupsRef.current, ocJoinRef.current],
+          },
         }),
+        // OC mode: label each stopline with its OC group (e.g. "G1"), so the
+        // grouping SUMO lacks (one group spanning several links) is visible.
+        ...(ocJoinRef.current?.enabled ? [
+          new TextLayer<StopLine>({
+            id: 'oc-group-labels',
+            data: stopLinesRef.current.filter(
+              (s) => s.tlsId.split('_')[0] === ocJoinRef.current!.subject_key
+                     && ocJoinRef.current!.link_group?.[String(s.sigIdx)]),
+            getPosition: (d) => [(d.from[0] + d.to[0]) / 2, (d.from[1] + d.to[1]) / 2],
+            getText: (d) => ocShortLabel(ocJoinRef.current!.link_group![String(d.sigIdx)]),
+            getSize: 12,
+            getColor: [235, 240, 255, 235],
+            getPixelOffset: [0, -10],
+            fontWeight: 700,
+            outlineWidth: 2,
+            outlineColor: [10, 10, 25, 255],
+            fontSettings: { sdf: true },
+            billboard: true,
+            updateTriggers: { getText: ocJoinRef.current },
+          }),
+        ] : []),
         // Pedestrian crossing AREA — neutral zebra marking (not signal-coloured).
         new LineLayer<Crossing>({
           id: 'crossings',
@@ -380,6 +430,17 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
       ldmOnRef.current = on
       const { vehicles, tls, detectors } = lastStepRef.current
       renderDeck(vehicles, tls, detectors)   // reflect the toggle immediately
+    },
+    setOcJoin(join) {
+      ocJoinRef.current = join
+      const { vehicles, tls, detectors } = lastStepRef.current
+      renderDeck(vehicles, tls, detectors)   // redraw labels/colours at once
+    },
+    setOcGroups(groups) {
+      // replace (not mutate) so deck.gl's updateTriggers sees a new identity
+      ocGroupsRef.current = groups
+      const { vehicles, tls, detectors } = lastStepRef.current
+      renderDeck(vehicles, tls, detectors)
     },
     setSelected(kind, id) {
       selectedRef.current = kind && id ? { kind, id } : null

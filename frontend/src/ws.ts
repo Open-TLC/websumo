@@ -30,6 +30,20 @@ export type Ldm = Record<string, unknown> & {
   objects: LdmObject[]
 }
 
+// Open Controller display mode: the group↔signal-index join served by
+// /api/oc/join. `enabled` is false when OC mode is off (frontend no-ops).
+export type OcJoinGroup = { links: number[]; control_number: number | null; timing: Record<string, unknown> }
+export type OcJoin = {
+  enabled: boolean
+  controller?: string
+  tls_id?: string
+  subject_key?: string
+  num_links?: number
+  link_group?: Record<string, string>   // sigIdx (string) → group name
+  groups?: Record<string, OcJoinGroup>
+  reason?: string
+}
+
 export class SimSocket {
   private ws: WebSocket | null = null
   onStep: ((vehicles: Vehicle[], tls: Record<string, string>, detectors: Record<string, boolean>, persons: Person[], t: number, maxRate?: number) => void) | null = null
@@ -38,6 +52,9 @@ export class SimSocket {
   onInspect: ((block: InspectBlock) => void) | null = null
   onFcd: ((graph: FcdGraph) => void) | null = null
   onLdm: ((ldm: Ldm) => void) | null = null
+  // OC display mode: group.status.<key>.<sigIdx> → substate; detector.status.<id> → loop_on
+  onOcGroup: ((subjectKey: string, sigIdx: number, substate: string) => void) | null = null
+  onOcDetector: ((id: string, loopOn: boolean) => void) | null = null
 
   connect(scenario: string): void {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -54,6 +71,14 @@ export class SimSocket {
         this.onFcd?.(d.graph)
       } else if (d.type === 'ldm') {
         this.onLdm?.(d.ldm)
+      } else if (d.type === 'oc_group') {
+        // subject: group.status.<key>.<sigIdx>  (key has no dots: tls_id.split('_')[0])
+        const parts = String(d.subject).split('.')
+        const sigIdx = Number(parts[parts.length - 1])
+        const key = parts.slice(2, -1).join('.')
+        if (!Number.isNaN(sigIdx)) this.onOcGroup?.(key, sigIdx, String(d.substate ?? ''))
+      } else if (d.type === 'oc_detector') {
+        this.onOcDetector?.(String(d.subject).replace(/^detector\.status\./, ''), !!d.loop_on)
       } else {
         this.onStep?.(d.vehicles ?? [], d.tls ?? {}, d.detectors ?? {}, d.persons ?? [], d.t ?? 0, d.maxRate)
         if (d.inspect) this.onInspect?.(d.inspect)
