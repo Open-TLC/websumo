@@ -17,7 +17,7 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PORT=8775
+PORT="${PORT:-8775}"                                 # override with PORT=… (e.g. the only port a container exposes)
 NATS_URL="${NATS_URL:-nats://localhost:4222}"
 FILES_DIR="${SCENARIOS_DIR:-/tmp/shared/sumotest}"   # where the real scenario files live (simengine reads these)
 EMPTY_DIR="/tmp/websumo-nofiles"                     # the backend's dir: intentionally empty (file-free)
