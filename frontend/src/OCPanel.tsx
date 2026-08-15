@@ -15,12 +15,25 @@ function dotColor(sub: string | undefined): string {
   }
 }
 
+function stateLabel(sub: string | undefined): string {
+  switch (sub) {
+    case 'G': case 'g': return 'GREEN'
+    case 'r': case 'R': return 'red'
+    case 'y': case 'Y': return 'amber'
+    default:            return sub ? sub : '—'
+  }
+}
+
 export function OCPanel({ join, groups }: { join: OcJoin; groups: Record<string, string> }) {
   if (!join.enabled || !join.groups) return null
   const key = join.subject_key ?? ''
   // order groups by their OC control number
   const names = Object.keys(join.groups).sort(
     (a, b) => (join.groups![a].control_number ?? 0) - (join.groups![b].control_number ?? 0))
+  const greenCount = names.filter((n) => {
+    const s = groups[`${key}.${join.groups![n].links[0]}`]
+    return s === 'g' || s === 'G'
+  }).length
 
   return (
     <div style={{
@@ -35,7 +48,7 @@ export function OCPanel({ join, groups }: { join: OcJoin; groups: Record<string,
         OPEN CONTROLLER · {join.controller}
       </div>
       <div style={{ color: '#667', marginBottom: 6, fontSize: 10 }}>
-        {join.tls_id} · {names.length} groups
+        {join.tls_id} · {names.length} groups · <span style={{ color: '#1ed250' }}>{greenCount} green</span>
       </div>
       <table style={{ borderCollapse: 'collapse', width: '100%' }}>
         <tbody>
@@ -56,7 +69,10 @@ export function OCPanel({ join, groups }: { join: OcJoin; groups: Record<string,
                 <td style={{ paddingRight: 8, color: '#c7d6ea', fontWeight: 700 }}>
                   G{g.control_number}
                 </td>
-                <td style={{ paddingRight: 8, color: '#778' }}>
+                <td style={{ paddingRight: 8, color: dotColor(sub), fontWeight: 700, fontSize: 10 }}>
+                  {stateLabel(sub)}
+                </td>
+                <td style={{ paddingRight: 8, color: '#778', fontSize: 10 }}>
                   link{g.links.length > 1 ? 's' : ''} {g.links.join(',')}
                 </td>
                 <td style={{ color: '#667', fontSize: 10 }}>

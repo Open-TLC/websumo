@@ -29,6 +29,7 @@ PORT="${PORT:-8775}"
 NATS_URL="${NATS_URL:-nats://localhost:4222}"
 OC_REPO="${OC_REPO:-/repos/graph2sumo/vendor/open_controller}"
 OC_MODEL="${OC_MODEL:-$OC_REPO/models/JS270_DEMO/contr/JS270_DEMO.json}"
+OC_CONTROL_CONF="${OC_CONTROL_CONF:-$OC_REPO/models/testmodel/oc_demo_full_features.json}"  # the OC brain (actuated control of 270)
 SCENARIOS_DIR="${SCENARIOS_DIR:-/tmp/shared/sumotest}"
 OC_TESTMODEL="$OC_REPO/models/testmodel"
 SIMSRC="/tmp/oc_demo_simsource.json"          # generated: group.status on every step
@@ -39,6 +40,7 @@ _stop() {
     pkill -f 'uvicorn main:app'  2>/dev/null || true
     pkill -f 'sumo_adapter.py'   2>/dev/null || true
     pkill -f 'simengine.py'      2>/dev/null || true
+    pkill -f 'clockwork.py'      2>/dev/null || true
 }
 
 if [[ "${1:-}" == "stop" ]]; then
@@ -49,7 +51,9 @@ fi
 # ---- 0. deps (fail loudly; jsmin is OC's config reader) ----
 missing=$(python3 - <<'PY'
 mods = {"nats":"nats-py","libsumo":"libsumo","sumolib":"SUMO distribution",
-        "fastapi":"fastapi","uvicorn":"uvicorn[standard]","jsmin":"jsmin"}
+        "fastapi":"fastapi","uvicorn":"uvicorn[standard]","jsmin":"jsmin",
+        # the OC control engine (clockwork) needs these to actuate the signals:
+        "transitions":"transitions","pandas":"pandas"}
 print("\n".join(f"{m} ({p})" for m,p in mods.items()
       if __import__("importlib").util.find_spec(m) is None))
 PY
@@ -130,9 +134,22 @@ PY
 done
 echo ""
 
+# ---- 6. OC control engine (clockwork): the BRAIN. Without it the simengine
+#         holds every signal red (it waits for external control), so the overlay
+#         would be a frozen all-red. With it, the signals are actuated live. ----
+CLOG=/tmp/oc_demo_control_engine.log
+echo "Starting OC control engine ($OC_CONTROL_CONF → group.control.270.*)…"
+( cd "$OC_REPO" && setsid python3 services/control_engine/src/clockwork.py \
+    --conf-file="$OC_CONTROL_CONF" \
+    --nats-server "$(echo "$NATS_URL" | sed -E 's#.*//([^:]+).*#\1#')" \
+    >"$CLOG" 2>&1 </dev/null & )
+sleep 3
+pgrep -f clockwork.py >/dev/null \
+    || { echo "WARNING: control engine did not start — signals will stay red (see $CLOG)" >&2; tail -3 "$CLOG" >&2; }
+
 echo ""
 echo "✅ OC display demo is up."
 echo "   URL:       http://localhost:$PORT   → select 'oc270', Load, Start"
-echo "   OC panel:  15 signal groups; stoplines colour live by OC group state"
-echo "   logs:      backend=$BLOG  simengine=$SLOG"
+echo "   OC panel:  15 signal groups; stoplines colour live by OC's actuated control"
+echo "   logs:      backend=$BLOG  simengine=$SLOG  control=$CLOG"
 echo "   stop:      ./run_oc_demo.sh stop"
