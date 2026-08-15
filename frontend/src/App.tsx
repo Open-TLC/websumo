@@ -4,7 +4,7 @@ import { InspectorPanel, type Selected } from './InspectorPanel'
 import { LogPanel, type LogEntry } from './LogPanel'
 import { MapView, type MapViewHandle } from './MapView'
 import { OCPanel } from './OCPanel'
-import { SimSocket, type InspectBlock, type FcdGraph, type Ldm, type OcJoin } from './ws'
+import { SimSocket, type InspectBlock, type FcdGraph, type Ldm, type OcJoin, type OcController } from './ws'
 
 type SimState = 'idle' | 'running' | 'paused' | 'ended'
 
@@ -32,6 +32,7 @@ export default function App() {
   const [genVtype, setGenVtype] = useState('')               // currently selected injection vType
   const [ocJoin, setOcJoin] = useState<OcJoin | null>(null)  // OC display mode: group↔link join
   const [ocGroups, setOcGroups] = useState<Record<string, string>>({})  // "<key>.<sigIdx>" → substate
+  const [ocController, setOcController] = useState<OcController | null>(null)  // OC brain status
 
   const mapRef    = useRef<MapViewHandle>(null)
   const sockRef   = useRef<SimSocket>(new SimSocket())
@@ -163,6 +164,7 @@ export default function App() {
         setOcGroups(ocGroupsRef.current)
         mapRef.current?.setOcGroups(ocGroupsRef.current)
       }
+      sock.onOcController = (s) => setOcController(s)
       sock.connect(scenario)
 
       setSimState('running')
@@ -363,7 +365,7 @@ export default function App() {
           onClose={handleDeselect}
         />
       )}
-      {ocJoin?.enabled && <OCPanel join={ocJoin} groups={ocGroups} />}
+      {ocJoin?.enabled && <OCPanel join={ocJoin} groups={ocGroups} controller={ocController} />}
       {ldmOn && ldm && (
         <div style={{
           position: 'absolute', bottom: 12, left: 12, zIndex: 15,

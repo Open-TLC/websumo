@@ -44,6 +44,14 @@ export type OcJoin = {
   reason?: string
 }
 
+// OC control-engine (brain) live status — from clockwork.status.<name>
+export type OcController = {
+  controller: string
+  phase: string | null       // e.g. "PH:1"
+  next_phase: string | null
+  step: number | null
+}
+
 export class SimSocket {
   private ws: WebSocket | null = null
   onStep: ((vehicles: Vehicle[], tls: Record<string, string>, detectors: Record<string, boolean>, persons: Person[], t: number, maxRate?: number) => void) | null = null
@@ -55,6 +63,8 @@ export class SimSocket {
   // OC display mode: group.status.<key>.<sigIdx> → substate; detector.status.<id> → loop_on
   onOcGroup: ((subjectKey: string, sigIdx: number, substate: string) => void) | null = null
   onOcDetector: ((id: string, loopOn: boolean) => void) | null = null
+  // OC control-engine (brain) status: clockwork.status.<name> → phase/next/step
+  onOcController: ((s: OcController) => void) | null = null
 
   connect(scenario: string): void {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -79,6 +89,9 @@ export class SimSocket {
         if (!Number.isNaN(sigIdx)) this.onOcGroup?.(key, sigIdx, String(d.substate ?? ''))
       } else if (d.type === 'oc_detector') {
         this.onOcDetector?.(String(d.subject).replace(/^detector\.status\./, ''), !!d.loop_on)
+      } else if (d.type === 'oc_controller') {
+        this.onOcController?.({ controller: d.controller, phase: d.phase ?? null,
+                                next_phase: d.next_phase ?? null, step: d.step ?? null })
       } else {
         this.onStep?.(d.vehicles ?? [], d.tls ?? {}, d.detectors ?? {}, d.persons ?? [], d.t ?? 0, d.maxRate)
         if (d.inspect) this.onInspect?.(d.inspect)

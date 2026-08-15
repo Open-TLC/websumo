@@ -1,4 +1,4 @@
-import type { OcJoin } from './ws'
+import type { OcJoin, OcController } from './ws'
 
 // Minimal Open Controller panel: lists each OC signal group with its live
 // substate (coloured dot), the SUMO signal indices it controls, and its
@@ -24,7 +24,8 @@ function stateLabel(sub: string | undefined): string {
   }
 }
 
-export function OCPanel({ join, groups }: { join: OcJoin; groups: Record<string, string> }) {
+export function OCPanel({ join, groups, controller }:
+  { join: OcJoin; groups: Record<string, string>; controller?: OcController | null }) {
   if (!join.enabled || !join.groups) return null
   const key = join.subject_key ?? ''
   // order groups by their OC control number
@@ -47,6 +48,14 @@ export function OCPanel({ join, groups }: { join: OcJoin; groups: Record<string,
       <div style={{ color: '#8ab4ff', fontWeight: 700, letterSpacing: 1, marginBottom: 4 }}>
         OPEN CONTROLLER · {join.controller}
       </div>
+      {/* control-engine (brain) status — from clockwork.status, not the simengine */}
+      {controller && (
+        <div style={{ color: '#c7d6ea', marginBottom: 4, fontSize: 11 }}>
+          phase <b style={{ color: '#8ab4ff' }}>{controller.phase ?? '—'}</b>
+          {controller.next_phase && controller.next_phase !== 'None'
+            ? <> → {controller.next_phase}</> : null}
+        </div>
+      )}
       <div style={{ color: '#667', marginBottom: 6, fontSize: 10 }}>
         {join.tls_id} · {names.length} groups · <span style={{ color: '#1ed250' }}>{greenCount} green</span>
       </div>

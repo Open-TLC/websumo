@@ -377,6 +377,19 @@ async def ws_endpoint(websocket: WebSocket, scenario: str) -> None:
         except Exception:
             pass
 
+    async def on_oc_controller(msg: nats_client.aio.msg.Msg) -> None:
+        # OC control-engine status: clockwork.status.<name> → {step_count,
+        # current_phase, next_phase}. This is OC's brain state (not the simengine).
+        try:
+            d = json.loads(msg.data)
+            await websocket.send_json({'type': 'oc_controller',
+                                       'controller': msg.subject.rsplit('.', 1)[-1],
+                                       'phase': d.get('current_phase'),
+                                       'next_phase': d.get('next_phase'),
+                                       'step': d.get('step_count')})
+        except Exception:
+            pass
+
     await nc.subscribe(f'sim.{scenario}.state', cb=on_state)
     await nc.subscribe(f'sim.{scenario}.end',   cb=on_end)
     # log payloads already carry {"type": "log"} — forward verbatim like state
@@ -390,6 +403,7 @@ async def ws_endpoint(websocket: WebSocket, scenario: str) -> None:
     if OPENCONTROLLER:
         await nc.subscribe('group.status.>',    cb=on_oc_group)
         await nc.subscribe('detector.status.>', cb=on_oc_detector)
+        await nc.subscribe('clockwork.status.>', cb=on_oc_controller)
 
     try:
         while True:
