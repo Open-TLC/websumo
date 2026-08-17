@@ -4,6 +4,7 @@ import { InspectorPanel, type Selected } from './InspectorPanel'
 import { LogPanel, type LogEntry } from './LogPanel'
 import { MapView, type MapViewHandle } from './MapView'
 import { OCPanel } from './OCPanel'
+import { SignalTimeline } from './SignalTimeline'
 import { SimSocket, type InspectBlock, type FcdGraph, type Ldm, type OcJoin, type OcController } from './ws'
 
 type SimState = 'idle' | 'running' | 'paused' | 'ended'
@@ -366,6 +367,7 @@ export default function App() {
         />
       )}
       {ocJoin?.enabled && <OCPanel join={ocJoin} groups={ocGroups} controller={ocController} />}
+      {ocJoin?.enabled && <SignalTimeline join={ocJoin} groups={ocGroups} controller={ocController} />}
       {ldmOn && ldm && (
         <div style={{
           position: 'absolute', bottom: 12, left: 12, zIndex: 15,

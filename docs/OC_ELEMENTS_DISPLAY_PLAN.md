@@ -62,15 +62,36 @@ direction — well beyond the originally-documented read-only P1.
   must be resolved before multi-engine/production.
 
 ### Next steps (revised)
-1. **P2 — detectors & indicators**: detector roles (request/extender/e3) and the
+
+Two 2026-08-17 research passes (`SOTA_TRAFFIC_SIM_COMPARISON.md`,
+`OC_SIGNAL_VIZ_METHODS.md`) both converge: our differentiator is **live,
+browser-native ATSPM-style signal analytics** riding on OC's high-resolution
+event stream — and the natural first diagram is a **live signal-state timeline /
+ring-barrier view** (the controller's canonical operator view), which extends the
+phase HUD we just shipped.
+
+1. **Live signal-state timeline (Gantt) → phase/ring diagram** — rolling
+   per-group state history + current phase, from the `group.status` /
+   `clockwork.status` we already stream. *(in progress)*
+2. **OC high-resolution event log over NATS** (keystone) — publish/persist events
+   in the FHWA/Purdue enumerated codes (phase on/off, detector on/off, **and
+   termination reason** GapOut/MaxOut/ForceOff). Unlocks ATSPM (split monitor,
+   split-failure, phase-termination, arrivals-on-green) via the reusable
+   Apache-2.0 `ShawnStrasser/atspm` library. OC-side ask.
+3. **P2 — detectors & indicators**: detector roles (request/extender/e3) and the
    fused `group.e3.*` approach queues on the map (§3 P2).
-2. **P3 — phase ring / intergreen panel** and the controller-status HUD (§3 P3).
-3. **Per-group stoplines** to fix the group8/shared-lane artifact.
-4. **Scenario scoping + Option C** before this is more than a single-junction
+4. **Queue/delay/LOS map heatmap** (deck.gl, from libsumo getters).
+5. **Time-space / coordination diagram** for multi-intersection corridors.
+6. **Per-group stoplines** to fix the group8/shared-lane artifact.
+7. **Scenario scoping + Option C** before this is more than a single-junction
    demo (§4).
-5. **Upstream the simbridge adoption** to OC (it's currently a local patch).
-6. **Visual/UX polish** — folds into the TODO "graphics & UI design revision".
-7. **Merge the branch** once P1 + the demo are signed off.
+8. **Upstream the simbridge adoption** to OC (it's currently a local patch).
+9. **Visual/UX polish** — folds into the TODO "graphics & UI design revision".
+10. **Merge the branch** once P1 + the demo are signed off.
+
+*Deliberately NOT pursuing (research-refuted): ML/RL "attention-as-explanation"
+auto-tuning UIs. If we do parameter suggestion, use ATSPM-flag → classic
+heuristic, with the before/after diagram as the explanation.*
 
 ---
 
