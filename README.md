@@ -210,6 +210,19 @@ Other approaches — the adapter republishing OC's `detector.control.*` /
 `docs/NATS_TRACI_REPLACEMENT_RESEARCH.md`) — were considered but are not planned
 at this stage.
 
+**Displaying OC control-plane elements (`--opencontroller` mode).** Beyond
+rendering OC's *traffic*, WebSUMO can overlay OC's *control plane* — signal groups
+coloured by live state, a controller-phase HUD, a live signal-state timeline, and
+detector states — read from OC's NATS subjects (`group.status.*`,
+`detector.status.*`, `clockwork.status.*`). Enable with `OPENCONTROLLER=1` +
+`OC_MODEL=<controller conf>`; `GET /api/oc/join` serves the group↔signal-index
+map. A one-command coherent demo (OC controls a SUMO sim, WebSUMO attaches and
+renders it with the overlay) is `./run_oc_demo.sh` (env-configurable `PORT`,
+`OC_REPO`, `OC_MODEL`). Design, status, and roadmap: `docs/OC_ELEMENTS_DISPLAY_PLAN.md`
+(with the SOTA/visualization research in `docs/SOTA_TRAFFIC_SIM_COMPARISON.md` and
+`docs/OC_SIGNAL_VIZ_METHODS.md`). The demo relies on a small OC-side publish
+addition captured in `patches/oc-simengine-websumo-publish.patch`.
+
 ## Development (hot reload)
 
 ```bash
