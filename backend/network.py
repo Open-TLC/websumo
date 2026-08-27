@@ -11,8 +11,14 @@ import sumolib
 _cache: dict[str, dict] = {}
 
 
-def _stopline_coords(shape, net, half_width: float = 1.8) -> list | None:
-    """Perpendicular line segment at the end of a lane shape, in WGS84."""
+def _stopline_segments(shape, net, n: int, half_width: float = 1.8) -> list | None:
+    """The stop bar at the end of a lane shape, split into n equal
+    sub-segments, in WGS84.
+
+    Returned in order from the lane's RIGHT edge to its left edge (in
+    travel direction), matching netconvert's ordering of a lane's
+    connections: link indices ascend from the rightmost movement to the
+    leftmost.  n=1 is the whole bar."""
     if len(shape) < 2:
         return None
     x1, y1 = shape[-2]
@@ -21,10 +27,17 @@ def _stopline_coords(shape, net, half_width: float = 1.8) -> list | None:
     L = math.sqrt(dx * dx + dy * dy)
     if L == 0:
         return None
-    px, py = -dy / L, dx / L
-    lon_l, lat_l = net.convertXY2LonLat(x2 + px * half_width, y2 + py * half_width)
-    lon_r, lat_r = net.convertXY2LonLat(x2 - px * half_width, y2 - py * half_width)
-    return [[lon_l, lat_l], [lon_r, lat_r]]
+    px, py = -dy / L, dx / L   # 90° counterclockwise = left of travel
+    rx, ry = x2 - px * half_width, y2 - py * half_width   # right edge
+    lx, ly = x2 + px * half_width, y2 + py * half_width   # left edge
+    segments = []
+    for i in range(n):
+        f0, f1 = i / n, (i + 1) / n
+        segments.append([
+            list(net.convertXY2LonLat(rx + (lx - rx) * f0, ry + (ly - ry) * f0)),
+            list(net.convertXY2LonLat(rx + (lx - rx) * f1, ry + (ly - ry) * f1)),
+        ])
+    return segments
 
 
 def _cross_lane_coords(shape, offset: float, net, half_width: float = 2.2) -> list | None:
@@ -269,29 +282,36 @@ def build_network_geojson(net_xml_path: str) -> dict:
                             'geometry': {'type': 'LineString', 'coordinates': bar},
                         })
 
-    # TLS stop lines — one per incoming lane, mapped to its signal index
-    seen_lanes: set[str] = set()
+    # TLS stop lines — one bar sub-segment per signal LINK, not per lane.
+    # SUMO states are per link: a shared lane (e.g. right+straight from the
+    # same lane) has several links with independent states, so its stop bar
+    # is split into one sub-segment per link, ascending sig_idx from the
+    # lane's right edge (netconvert orders a lane's connections rightmost
+    # movement first).  A single-link lane keeps its full-width bar.
     for tls in net.getTrafficLights():
         tls_id = tls.getID()
+        lane_sig_idxs: dict[str, set[int]] = {}
+        lane_shapes: dict[str, list] = {}
         for sig_idx, conns in tls.getLinks().items():
             for from_lane, _to_lane, _via in conns:
                 # Pedestrian links (walkingarea/crossing from-lanes) are drawn as
                 # crossings, not vehicle stoplines.
                 if from_lane.getEdge().getFunction() in ('walkingarea', 'crossing'):
                     continue
-                lane_id = from_lane.getID()
-                if lane_id in seen_lanes:
-                    continue
-                seen_lanes.add(lane_id)
-                coords = _stopline_coords(from_lane.getShape(), net)
-                if coords is None:
-                    continue
+                lane_sig_idxs.setdefault(from_lane.getID(), set()).add(int(sig_idx))
+                lane_shapes[from_lane.getID()] = from_lane.getShape()
+        for lane_id, sig_idxs in lane_sig_idxs.items():
+            ordered = sorted(sig_idxs)
+            segments = _stopline_segments(lane_shapes[lane_id], net, len(ordered))
+            if segments is None:
+                continue
+            for sig_idx, coords in zip(ordered, segments):
                 features.append({
                     'type': 'Feature',
                     'properties': {
                         'type': 'stopline',
                         'tls_id': tls_id,
-                        'sig_idx': int(sig_idx),
+                        'sig_idx': sig_idx,
                     },
                     'geometry': {'type': 'LineString', 'coordinates': coords},
                 })
