@@ -131,3 +131,15 @@ committing to either:
 - **Day-long demand profiles**: diurnal flow rates (morning/evening peaks)
   belong in graph2sumo demand generation; viewer already supports 24 h runs
   with constant rates
+- **Basemap tiles — productionize** (currently ad-hoc): the demo uses Stadia
+  `alidade_smooth` raster (switched after CARTO began watermarking keyless
+  tiles). Stadia's free tier is **non-commercial** and forbids server-side
+  caching, so the current setup is a demo config, not shippable. Recommended
+  path: self-host **vector PMTiles** (Planetiler → `.pmtiles` → Cloudflare
+  R2/CDN → MapLibre `pmtiles://` + open grayscale style), with Finnish CC-BY
+  government basemaps (NLS/MML, City of Helsinki) as an authoritative Helsinki
+  layer; avoid Mapbox/Google (renderer + anti-caching + "non-Google map")
+  and never hotlink `tile.openstreetmap.org`. Immediate must-do: compliant
+  OSM attribution (`AttributionControl({compact:true})`, linked "© OpenStreetMap
+  contributors"). Full options/legal/next-steps in
+  `docs/BASEMAP_TILES_STRATEGY.md`.
