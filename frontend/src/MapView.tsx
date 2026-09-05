@@ -52,11 +52,11 @@ interface Generator {
 function tlsColor(stateStr: string | undefined, sigIdx: number): [number, number, number, number] {
   switch (stateStr?.[sigIdx]) {
     case 'G':
-    case 'g': return [30, 210, 80, 255]
+    case 'g': return [30, 220, 80, 255]
     case 'r':
-    case 'R': return [220, 30, 30, 255]
+    case 'R': return [255, 40, 40, 255]
     case 'y':
-    case 'Y': return [230, 200, 0, 255]
+    case 'Y': return [235, 205, 0, 255]
     default:  return [140, 140, 140, 180]
   }
 }
