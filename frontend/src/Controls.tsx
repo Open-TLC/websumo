@@ -1,4 +1,5 @@
 interface Props {
+  embed?: boolean   // embedded auto-running panel: only speed/traffic + clock
   scenarios: string[]
   scenario: string
   simState: 'idle' | 'running' | 'paused' | 'ended'
@@ -63,6 +64,7 @@ const DURATIONS = [
 ]
 
 export function Controls({
+  embed = false,
   scenarios, scenario, simState, simTime, speed, maxRate, trafficScale, duration, basemap, ldmOn,
   logUnread, genVtypes, genVtype, onGenVtypeChange, onToggleLog,
   onScenarioChange, onDurationChange, onLoad, onStart, onPause, onResume, onStop, onReset,
@@ -91,7 +93,7 @@ export function Controls({
           WebSUMO
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
-          <button
+          {!embed && <button
             onClick={onToggleLog}
             title="Simulation log"
             style={{
@@ -112,8 +114,8 @@ export function Controls({
                 {logUnread > 99 ? '99+' : logUnread}
               </span>
             )}
-          </button>
-          <button
+          </button>}
+          {!embed && <button
             onClick={onLdmToggle}
             title="V2X shared Local Dynamic Map — perception overlay"
             style={{
@@ -124,7 +126,7 @@ export function Controls({
             }}
           >
             LDM
-          </button>
+          </button>}
           <button
             onClick={onBasemapToggle}
             title="Toggle OSM basemap"
@@ -140,8 +142,8 @@ export function Controls({
         </div>
       </div>
 
-      {/* Scenario selector */}
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+      {/* Scenario selector — hidden in embed mode (deep-linked + auto-loaded) */}
+      {!embed && <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <select
           value={scenario}
           onChange={(e) => onScenarioChange(e.target.value)}
@@ -156,10 +158,10 @@ export function Controls({
           ))}
         </select>
         {btn('Load', onLoad, active || !scenario)}
-      </div>
+      </div>}
 
-      {/* Simulation duration */}
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+      {/* Simulation duration — hidden in embed mode (default/deep-linked) */}
+      {!embed && <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         <span style={{ fontSize: 11, color: '#778', width: 52 }}>Length</span>
         <select
           value={duration}
@@ -174,16 +176,16 @@ export function Controls({
             <option key={d.value} value={d.value}>{d.label}</option>
           ))}
         </select>
-      </div>
+      </div>}
 
-      {/* Playback controls */}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+      {/* Playback controls — hidden in embed mode (auto-start + auto-restart) */}
+      {!embed && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         {btn('▶ Start', onStart, !idle && !ended, true)}
         {running && btn('⏸ Pause', onPause)}
         {paused && btn('▶ Resume', onResume)}
         {active && btn('■ Stop', onStop)}
         {!idle && btn('↺ Reset', onReset)}
-      </div>
+      </div>}
 
       {/* Speed — ×-real-time, logarithmic; red + clamped when the machine
           can't sustain the requested rate */}
@@ -225,7 +227,7 @@ export function Controls({
       </div>
 
       {/* Generator vehicle type — click a green entry marker to inject */}
-      {genVtypes.length > 0 && (
+      {!embed && genVtypes.length > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 11, color: '#778', width: 52 }}>Inject</span>
           <select

@@ -41,6 +41,18 @@ FastAPI relays NATS ↔ browser WebSocket on port 8775, so only one port needs t
 be reachable from the browser. libsumo runs SUMO in-process (~8× faster than the
 TraCI socket).
 
+The frontend also supports an **embedded auto-running mode** for hosting the
+viewer inside another tool (e.g. an iframe):
+
+```
+/?embed=1&scenario=NAME[&end=SECONDS]
+```
+
+`scenario` is selected (exact or substring match), the network auto-loads and
+the simulation auto-starts with the default duration (`end` overrides it, in
+seconds), runs restart automatically when they finish, and the panel shows only
+the speed and traffic controls. Without `?embed` the UI behaves as before.
+
 ## Dependencies
 
 ```bash

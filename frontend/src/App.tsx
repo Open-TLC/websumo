@@ -7,6 +7,17 @@ import { SimSocket, type InspectBlock, type FcdGraph, type Ldm } from './ws'
 
 type SimState = 'idle' | 'running' | 'paused' | 'ended'
 
+// ?embed=1 turns the viewer into an auto-running embedded panel (e.g. an
+// iframe in the graph-live workbench): ?scenario=NAME is selected (exact or
+// substring match), the network auto-Loads and the sim auto-Starts with the
+// default duration (?end=SECONDS overrides), runs auto-restart when they end,
+// and only the speed/traffic controls are shown. Without ?embed the viewer
+// behaves exactly as before.
+const _params = new URLSearchParams(window.location.search)
+const EMBED = _params.get('embed') === '1'
+const EMBED_SCENARIO = _params.get('scenario')
+const EMBED_END = _params.get('end') ? parseInt(_params.get('end')!, 10) : null
+
 export default function App() {
   const [scenarios, setScenarios] = useState<string[]>([])
   const [scenario, setScenario] = useState('')
@@ -16,7 +27,8 @@ export default function App() {
   const [speed, setSpeed] = useState(1)          // ×-real-time (RT-aligned)
   const [maxRate, setMaxRate] = useState<number | null>(null)  // machine ceiling ×RT
   const [trafficScale, setTrafficScale] = useState(1.0)
-  const [duration, setDuration] = useState(28800)   // default 8 h
+  const [duration, setDuration] = useState(EMBED_END ?? 28800)   // default 8 h
+  const [autoRun, setAutoRun] = useState(EMBED)  // embed: Load+Start pending
   const [basemap, setBasemap] = useState(false)
   const [logOpen, setLogOpen] = useState(false)
   const [logUnread, setLogUnread] = useState(0)
@@ -48,14 +60,21 @@ export default function App() {
   // a select sent right after Start can beat the adapter's NATS subscription
   // and be dropped — re-send once the first state message proves it's up
   const resendSelectRef = useRef(false)
+  // embed auto-restart calls Start from a timer; the ref avoids a stale closure
+  const handleStartRef = useRef<() => void>(() => {})
 
   useEffect(() => {
     fetch('/api/scenarios')
       .then((r) => r.json())
       .then((list: string[]) => {
         setScenarios(list)
-        // default to fi.helsinki.269 when present, else the first scenario
-        if (list.length > 0) setScenario(list.find((s) => s.includes('269')) ?? list[0])
+        if (list.length === 0) return
+        // ?scenario=NAME (embed) selects that intersection (exact or substring);
+        // else default to fi.helsinki.269 when present, else the first.
+        const pick = (EMBED && EMBED_SCENARIO
+          && list.find((s) => s === EMBED_SCENARIO || s.includes(EMBED_SCENARIO)))
+          || list.find((s) => s.includes('269')) || list[0]
+        setScenario(pick)
       })
       .catch(console.error)
   }, [])
@@ -118,6 +137,9 @@ export default function App() {
       sock.onEnd = () => {
         setSimState('ended')
         sock.close()
+        // embed mode loops: restart the run after a short breather (current
+        // speed/traffic slider values carry over via the refs)
+        if (EMBED) window.setTimeout(() => handleStartRef.current(), 1500)
       }
       sock.onLog = (t, events) => {
         setLogEntries((prev) => [...prev, ...events.map((e) => ({ t, ...e }))].slice(-500))
@@ -160,6 +182,16 @@ export default function App() {
       alert(`Failed to start: ${e}`)
     }
   }, [scenario, duration])
+  handleStartRef.current = handleStart
+
+  // embed: auto-Load + auto-Start once the deep-linked scenario is selected
+  useEffect(() => {
+    if (!autoRun || !scenario) return
+    setAutoRun(false)
+    handleLoad()
+    handleStart()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRun, scenario])
 
   const handlePause = useCallback(() => {
     sockRef.current.send('pause')
@@ -292,6 +324,7 @@ export default function App() {
         onGenerate={handleGenerate}
       />
       <Controls
+        embed={EMBED}
         scenarios={scenarios}
         scenario={scenario}
         simState={simState}
