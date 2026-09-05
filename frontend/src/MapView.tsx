@@ -358,7 +358,20 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
         }
       }
       if (isFinite(minLon)) {
-        map.fitBounds([[minLon, minLat], [maxLon, maxLat]], { padding: 60, maxZoom: 18 })
+        // retry until the style/transform is ready — a fit issued during the
+        // initial style dance was sometimes silently lost (embed auto-Load)
+        const bounds: [[number, number], [number, number]] =
+          [[minLon, minLat], [maxLon, maxLat]]
+        const tryFit = (attempts: number) => {
+          if (map.isStyleLoaded()) {
+            map.fitBounds(bounds, { padding: 60, maxZoom: 18 })
+          } else if (attempts > 0) {
+            window.setTimeout(() => tryFit(attempts - 1), 80)
+          } else {
+            map.fitBounds(bounds, { padding: 60, maxZoom: 18 })
+          }
+        }
+        tryFit(50)
       }
     },
     updateStep(vehicles: Vehicle[], tls: Record<string, string>, detectors: Record<string, boolean>, persons: Person[]) {
@@ -593,12 +606,19 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
       })
     }
 
-    // 'idle', not 'load': when the network arrives moments after map creation
-    // (embed mode auto-Load), 'load' has already fired and adding the basemap
-    // leaves isStyleLoaded() false for a tick — a queued 'load' handler would
-    // then never run and the static network layers would never be added.
-    if (map.isStyleLoaded()) addLayers()
-    else map.once('idle', addLayers)
+    // Poll until the style is genuinely ready instead of relying on maplibre
+    // events: when the network arrives moments after map creation (embed mode
+    // auto-Load), 'load' has already fired and isStyleLoaded() flickers false
+    // while the basemap is added — both once('load') and once('idle') proved
+    // racy there, silently leaving the static network layers unadded.
+    let cancelled = false
+    const tryAdd = () => {
+      if (cancelled) return
+      if (map.isStyleLoaded()) addLayers()
+      else window.setTimeout(tryAdd, 80)
+    }
+    tryAdd()
+    return () => { cancelled = true }
   }, [networkGeoJSON])
 
   return (
