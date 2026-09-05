@@ -593,8 +593,12 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
       })
     }
 
+    // 'idle', not 'load': when the network arrives moments after map creation
+    // (embed mode auto-Load), 'load' has already fired and adding the basemap
+    // leaves isStyleLoaded() false for a tick — a queued 'load' handler would
+    // then never run and the static network layers would never be added.
     if (map.isStyleLoaded()) addLayers()
-    else map.once('load', addLayers)
+    else map.once('idle', addLayers)
   }, [networkGeoJSON])
 
   return (
