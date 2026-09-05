@@ -436,15 +436,22 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
       onPickAwayRef.current?.()
     })
 
-    // CartoDB Light basemap — hidden by default, toggled via setBasemap()
+    // Stadia alidade_smooth basemap — hidden by default, toggled via setBasemap().
+    // Replaces CARTO light_all, which began returning HTTP-200 tiles with an
+    // "API KEY REQUIRED" watermark baked into the raster (no error surfaces —
+    // see osm_extractor docs/inspector_basemap_tiles.md). Stadia's keyless tier
+    // is for local dev and needs a Referer header (browsers always send one);
+    // the attribution line is required by their terms, not cosmetic.
     map.once('load', () => {
       map.addSource('basemap', {
         type: 'raster',
-        tiles: ['https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'],
+        tiles: ['https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}{r}.png'],
         tileSize: 256,
+        maxzoom: 21,
         attribution:
-          '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors ' +
-          '© <a href="https://carto.com/attributions">CARTO</a>',
+          '© <a href="https://stadiamaps.com/">Stadia Maps</a> ' +
+          '© <a href="https://openmaptiles.org/">OpenMapTiles</a> ' +
+          '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       })
       map.addLayer({ id: 'basemap-l', type: 'raster', source: 'basemap',
                      paint: { 'raster-opacity': 0 } })
