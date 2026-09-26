@@ -497,18 +497,18 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
       onPickAwayRef.current?.()
     })
 
-    // Stadia alidade_smooth basemap — hidden by default, toggled via setBasemap().
-    // Replaces CARTO light_all, which began returning HTTP-200 tiles with an
-    // "API KEY REQUIRED" watermark baked into the raster (no error surfaces —
-    // see osm_extractor docs/inspector_basemap_tiles.md). Stadia's keyless tier
-    // is for local dev and needs a Referer header (browsers always send one);
-    // the attribution line is required by their terms, not cosmetic.
+    // Stadia alidade_smooth — the SAME light basemap every other tool here uses
+    // (osm_extractor inspector, src/explorer/templates/index.html; see
+    // docs/inspector_basemap_tiles.md "the move to Stadia"). Keyless tier works
+    // from a browser (which always sends a Referer). Shown by default.
+    // NOTE: MapLibre does NOT understand Leaflet's {r} retina token — including it
+    // makes every tile 404 and the basemap silently never loads. Do not add {r}.
     map.once('load', () => {
       map.addSource('basemap', {
         type: 'raster',
-        tiles: ['https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}{r}.png'],
+        tiles: ['https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}.png'],
         tileSize: 256,
-        maxzoom: 21,
+        maxzoom: 20,
         attribution:
           '© <a href="https://stadiamaps.com/">Stadia Maps</a> ' +
           '© <a href="https://openmaptiles.org/">OpenMapTiles</a> ' +

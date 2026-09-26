@@ -19,7 +19,7 @@ export default function App() {
   const [maxRate, setMaxRate] = useState<number | null>(null)  // machine ceiling ×RT
   const [trafficScale, setTrafficScale] = useState(1.0)
   const [duration, setDuration] = useState(28800)   // default 8 h
-  const [basemap, setBasemap] = useState(false)
+  const [basemap, setBasemap] = useState(false)   // start clean; toggle the basemap on when wanted
   const [logOpen, setLogOpen] = useState(false)
   const [logUnread, setLogUnread] = useState(0)
   const [logEntries, setLogEntries] = useState<LogEntry[]>([])

@@ -420,4 +420,14 @@ async def ws_endpoint(websocket: WebSocket, scenario: str) -> None:
 app.include_router(api)
 
 if FRONTEND_DIST.exists():
+    # Serve index.html with no-store so the browser always re-fetches the entry
+    # HTML (and thus the current hashed bundle). Without this, a cached index.html
+    # keeps pointing browsers at a stale JS bundle after every rebuild.
+    from fastapi.responses import FileResponse
+
+    @app.get('/')
+    def _index():
+        return FileResponse(str(FRONTEND_DIST / 'index.html'),
+                            headers={'Cache-Control': 'no-store'})
+
     app.mount('/', StaticFiles(directory=str(FRONTEND_DIST), html=True), name='static')
