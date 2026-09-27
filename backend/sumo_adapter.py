@@ -580,10 +580,24 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
 
     sumo_cmd = [
         'sumo', '-c', sumocfg,
-        '--step-length', '0.1',   # 10 physics steps per sim-second
+        '--step-length', '0.1',   # 10 physics steps per sim-second (smooth rendering)
         '--no-step-log',
+        '--duration-log.disable',  # skip end-of-run timing stats (no fidelity impact)
         '--quit-on-end',
     ]
+    # Opt-in tradeoffs (default OFF — these change simulated dynamics / hide problems,
+    # so they must not be silent defaults; the real-time win comes from the adaptive
+    # snapshot rate below, which is sim-neutral. See graph2sumo
+    # background_material/sumo_performance_scaling_research.md).
+    #   SIM_ACTION_STEP_LENGTH=1.0 — recompute car-following/lane-change ~1x/s instead
+    #     of every 0.1 s (~cheaper), BUT vehicles then react to signals/leaders up to
+    #     that late — validate signal-control metrics before trusting it.
+    #   SIM_NO_WARNINGS=1 — suppress SUMO warnings (also hides teleport/gridlock/
+    #     insertion issues; the emergency-braking flood is a fidelity smell to fix).
+    if os.environ.get('SIM_ACTION_STEP_LENGTH'):
+        sumo_cmd += ['--default.action-step-length', os.environ['SIM_ACTION_STEP_LENGTH']]
+    if os.environ.get('SIM_NO_WARNINGS'):
+        sumo_cmd += ['--no-warnings']
     detectors_xml = f'{SCENARIOS_DIR}/{scenario}.detectors.xml'
     if os.path.exists(detectors_xml):
         sumo_cmd += ['--additional-files', detectors_xml]
@@ -616,7 +630,16 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
     prev_fw = None         # wall time of the previous frame
     prev_ft = 0.0          # sim time of the previous frame
     insp_prev = None       # (veh id, sim t, speed) of last inspect, for frame accel
-    FRAME_DT = 0.095       # ~10 Hz UI, decoupled from the step rate
+    # UI snapshot period (s), decoupled from the step rate. Building + JSON-encoding
+    # + NATS-publishing the full vehicle snapshot is the dominant per-frame cost at
+    # high vehicle counts — NOT the SUMO step. It is also sim-neutral (the sim steps,
+    # OC control and detectors are unaffected by how often we publish), so we adapt it
+    # freely: run at the target rate (SIM_FRAME_DT, ~10 Hz) when there's headroom, and
+    # shed frames up to SIM_FRAME_DT_MAX when the sim can't keep real-time — so a large
+    # scenario holds real-time by trading render smoothness, not fidelity.
+    base_frame_dt = float(os.environ.get('SIM_FRAME_DT', '0.095'))      # target (~10 Hz)
+    max_frame_dt  = float(os.environ.get('SIM_FRAME_DT_MAX', '1.0'))    # floor (~1 Hz) under load
+    frame_dt = base_frame_dt
 
     try:
         while True:
@@ -638,9 +661,9 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
             t_start = time.monotonic()
             if next_step is None:
                 next_step = t_start
-            # only build the full vehicle snapshot on a UI frame (~10 Hz wall);
+            # only build the full vehicle snapshot on a UI frame (adaptive rate);
             # in between, bare steps keep the sim moving cheaply
-            full = (t_start - last_frame) >= FRAME_DT
+            full = (t_start - last_frame) >= frame_dt
             # egocentric graphs are a decimated subset of UI frames (~3 Hz)
             want_fcd = full and (t_start - last_fcd) >= fcd_dt
             if want_fcd:
@@ -687,6 +710,16 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
                 prev_fw, prev_ft = t_start, last_t
                 limited = achieved_ema is not None and achieved_ema < 0.9 * speed_req
                 result['maxRate'] = round(achieved_ema, 1) if limited else 9999.0
+                # Adaptive UI rate (sim-neutral): if we can't keep up, shed frames
+                # (grow frame_dt) to cut the dominant per-frame snapshot/publish cost;
+                # recover toward the target rate when there is clear headroom. Grows
+                # fast, recovers slowly (hysteresis) so it settles at the highest rate
+                # that still sustains real-time.
+                if limited:
+                    frame_dt = min(max_frame_dt, frame_dt * 1.5)
+                elif achieved_ema is not None and achieved_ema >= 0.98 * speed_req \
+                        and frame_dt > base_frame_dt:
+                    frame_dt = max(base_frame_dt, frame_dt * 0.85)
                 # Acceleration consistent with the displayed frames: SUMO's
                 # getAcceleration is the instantaneous last-0.1s value, but at
                 # high speed frames are seconds apart, so it wouldn't explain the

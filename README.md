@@ -90,6 +90,29 @@ cd backend && SCENARIOS_DIR=/tmp/shared/sumotest \
 `SCENARIOS_DIR` should contain `.sumocfg` / `.net.xml` files (produced by
 `graph2sumo`).
 
+## Performance / staying real-time at scale
+
+The simengine's single-core cost is dominated **not** by the SUMO step but by the
+per-frame **vehicle-snapshot build + NATS publish**, which grows with vehicle
+count. On a large subarea (`area3`, ~32k edges) at ~6k concurrent vehicles, a fixed
+10 Hz snapshot rate drops the live sim to ~0.3× real-time — while SUMO itself runs
+several× real-time on that same network. So the snapshot rate is **adaptive and
+sim-neutral** (it changes only how often state is *published* — never the
+simulation, OC signal control, or detector sampling): full rate when there's
+headroom, shedding frames under load to hold real-time.
+
+| env | default | effect |
+|---|---|---|
+| `SIM_FRAME_DT` | `0.095` (~10 Hz) | target UI snapshot period (seconds) |
+| `SIM_FRAME_DT_MAX` | `1.0` (~1 Hz) | rate it sheds to under load — **sim-neutral** |
+| `SIM_ACTION_STEP_LENGTH` | *(unset)* | **opt-in.** Recompute car-following/lane-change ~1×/s instead of every 0.1 s (cheaper), but vehicles then react to signals/leaders up to that late — **validate signal-control metrics before trusting it.** Guarantees real-time even at extreme peak. |
+| `SIM_NO_WARNINGS` | *(unset)* | **opt-in.** Suppress SUMO warnings (also hides teleport/gridlock/insertion problems). |
+
+With defaults, `area3` holds real-time up to ~5–6k vehicles and stays within a few
+percent of it at the most extreme peak, with **zero fidelity impact**. For
+guaranteed real-time at extreme scale, set `SIM_ACTION_STEP_LENGTH=1.0`. Full
+analysis: `graph2sumo/background_material/sumo_performance_scaling_research.md`.
+
 ### Access control
 
 The `scenario` name in every request is validated against the built scenarios
