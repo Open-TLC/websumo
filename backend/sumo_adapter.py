@@ -578,9 +578,15 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
             await msg.respond(_gz)
         await nc.subscribe(f'sim.{scenario}.{_kind}', cb=_on_file)
 
+    # Micro needs fine steps for smooth car-following/rendering. Meso is queue/event-
+    # based, so fine steps just multiply per-step overhead (10x more executor round-
+    # trips + frames per sim-second) WITHOUT adding fidelity — which caps the live
+    # rate and is why meso hit "red" at modest speed despite ~475x raw headroom. Use a
+    # coarse step for meso so it delivers that speed live. Override via SIM_STEP_LENGTH.
+    step_len = os.environ.get('SIM_STEP_LENGTH') or ('1.0' if os.environ.get('SIM_MESO') else '0.1')
     sumo_cmd = [
         'sumo', '-c', sumocfg,
-        '--step-length', '0.1',   # 10 physics steps per sim-second (smooth rendering)
+        '--step-length', step_len,
         '--no-step-log',
         '--duration-log.disable',  # skip end-of-run timing stats (no fidelity impact)
         '--quit-on-end',
