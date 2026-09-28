@@ -598,6 +598,14 @@ async def run(scenario: str, nats_url: str, end_time: int | None = None,
         sumo_cmd += ['--default.action-step-length', os.environ['SIM_ACTION_STEP_LENGTH']]
     if os.environ.get('SIM_NO_WARNINGS'):
         sumo_cmd += ['--no-warnings']
+    #   SIM_MESO=1 — mesoscopic (queue-based) engine: same net+demand, ~100x+ faster,
+    #     but no car-following/lane detail and only approximate spillback. --meso-
+    #     junction-control keeps signals enforced so external OC control (setRedYellow-
+    #     GreenState) still governs discharge; --meso-tls-flow-penalty 0 avoids double-
+    #     penalising signals we control live. EXPERIMENTAL (branch exp/meso-sumosim).
+    if os.environ.get('SIM_MESO'):
+        sumo_cmd += ['--mesosim', '--meso-junction-control', 'true',
+                     '--meso-tls-flow-penalty', '0']
     detectors_xml = f'{SCENARIOS_DIR}/{scenario}.detectors.xml'
     if os.path.exists(detectors_xml):
         sumo_cmd += ['--additional-files', detectors_xml]
