@@ -62,6 +62,34 @@ v1 (vehicles + traffic lights) is done — see Done below. Remaining scope:
 - **Spawn feedback**: surface queued/failed injections in the UI (adapter
   already emits `spawn-failed` on the log subject)
 
+## 4. Mesoscopic mode — link-level visualisation (experimental)
+
+`SIM_MESO=1` (branch `exp/meso-sumosim`) runs the mesoscopic engine — ~100×+
+faster, so city-scale subareas like `area3` stay real-time. But meso state is
+**edge/segment-level flow–density**, not vehicle positions: `getPosition()` returns
+approximate 100 m-segment placements, so the current per-vehicle glyphs are
+cosmetic when meso is on. Full research (what meso exposes, how Aimsun/UXsim/etc.
+visualise it, deck.gl fit, pitfalls): `docs/MESO_VIZ_RESEARCH.md`.
+
+Next steps, cheapest-first (from that doc §5):
+
+- **Edge state on the wire**: publish per-edge mean speed / density / occupancy /
+  count alongside (or instead of) `vehicles` when meso is on. First **verify which
+  libsumo `edge`-domain getters are non-trivial under `--mesosim`** — meso has no
+  instantaneous speed, and `meandata` halting/`waitingTime` was found *not* reliably
+  meaningful in meso (see the doc's refuted claim). Geometry is static → send once,
+  stream only scalars.
+- **Edge choropleth** (highest value): deck.gl `PathLayer`, one path per edge,
+  `getColor` by speed/density, `getWidth` by flow; put scalars behind
+  `updateTriggers`, keep geometry immutable.
+- **Per-approach queue indicators** at controlled junctions (Aimsun "virtual queue"
+  pattern) — what the OC demo actually wants to show.
+- **Demote glyphs** to an optional overlay, badged "approximate", off by default in
+  meso mode.
+- **Validate vs micro**: compare edge density/occupancy + junction queues; expect
+  meso to underestimate congestion and delay upstream queue build-up.
+- Later: time–space diagram / MFD / cumulative-curve analysis panels.
+
 ---
 
 ## Done

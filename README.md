@@ -44,7 +44,7 @@ TraCI socket).
 ## Dependencies
 
 ```bash
-# Python deps (fastapi, uvicorn, pydantic, nats-py, libsumo)
+# Python deps (fastapi, uvicorn[standard]+websockets, pydantic, nats-py, libsumo)
 python3 -m pip install --user -r backend/requirements.txt
 ```
 
@@ -56,6 +56,10 @@ Also required, installed **separately** (not pip packages in this repo):
 
 If any of these go missing (e.g. a fresh/reset environment), `./run.sh` checks
 them up front and tells you exactly what to install, rather than failing silently.
+This includes a WebSocket backend for uvicorn (`uvicorn[standard]` pulls in
+`websockets`): the live vehicle stream rides `/api/ws/<scenario>`, so a bare
+`uvicorn` install renders the network but streams **no traffic** — the check now
+catches that case explicitly.
 
 ## Quick start — file-free (NATS-only) mode
 
@@ -107,11 +111,37 @@ headroom, shedding frames under load to hold real-time.
 | `SIM_FRAME_DT_MAX` | `1.0` (~1 Hz) | rate it sheds to under load — **sim-neutral** |
 | `SIM_ACTION_STEP_LENGTH` | *(unset)* | **opt-in.** Recompute car-following/lane-change ~1×/s instead of every 0.1 s (cheaper), but vehicles then react to signals/leaders up to that late — **validate signal-control metrics before trusting it.** Guarantees real-time even at extreme peak. |
 | `SIM_NO_WARNINGS` | *(unset)* | **opt-in.** Suppress SUMO warnings (also hides teleport/gridlock/insertion problems). |
+| `SIM_MESO` | *(unset)* | **opt-in, experimental.** Mesoscopic engine — ~100×+ faster, but coarser fidelity. See *Mesoscopic mode* below. |
+| `SIM_STEP_LENGTH` | `0.1` micro / `1.0` meso | simulation step length (s). Meso defaults coarse — fine steps add per-step overhead, not fidelity. |
 
 With defaults, `area3` holds real-time up to ~5–6k vehicles and stays within a few
 percent of it at the most extreme peak, with **zero fidelity impact**. For
 guaranteed real-time at extreme scale, set `SIM_ACTION_STEP_LENGTH=1.0`. Full
 analysis: `graph2sumo/background_material/sumo_performance_scaling_research.md`.
+
+## Mesoscopic mode (experimental)
+
+`SIM_MESO=1 ./run.sh area3` runs the scenario on SUMO's **mesoscopic** engine
+instead of the default microscopic one — same network and demand, ~100×+ faster,
+which is what makes a city-scale subarea like `area3` comfortably real-time on one
+core.
+
+The tradeoff is fidelity. Meso is **queue/segment-based**: no car-following, no
+lane-level detail, only approximate spillback. Vehicles are placed in ~100 m queue
+segments, so `getPosition()` still returns coordinates but they are **approximate
+segment placements, not simulated positions** — the per-vehicle glyphs are
+effectively cosmetic. Signals are still enforced (`--meso-junction-control`), and
+`--meso-tls-flow-penalty 0` avoids double-penalising signals when OC drives them
+live. Meso runs coarse steps by default (`SIM_STEP_LENGTH=1.0`) because fine steps
+only multiply per-step overhead without adding fidelity.
+
+Because meso's native state is **edge/segment-level flow–density**, the honest way
+to visualise it is link-level (colour edges by speed/density, queue indicators at
+approaches) rather than trusting the vehicle dots. What meso exposes, how other
+tools (Aimsun, UXsim, …) visualise it, and concrete next steps for this viewer are
+written up in `docs/MESO_VIZ_RESEARCH.md`; the viewer work is tracked in TODO §4.
+
+Experimental — branch `exp/meso-sumosim`.
 
 ### Access control
 
