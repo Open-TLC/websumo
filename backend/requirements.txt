@@ -9,6 +9,9 @@
 # and its version should match your installed SUMO/sumolib.
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
+websockets>=12.0  # the live vehicle stream rides a WebSocket (/api/ws/<scenario>);
+                  # uvicorn[standard] normally pulls this in, but pin it explicitly so
+                  # a bare `uvicorn` install can't leave the stream silently dead.
 pydantic>=2.0
 nats-py>=2.9.0
 libsumo>=1.27.0   # keep in sync with the installed SUMO/sumolib version

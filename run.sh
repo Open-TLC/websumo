@@ -48,6 +48,14 @@ for mod, pkg in mods.items():
         __import__(mod)
     except Exception:
         miss.append(f"{mod} (install: {pkg})")
+# uvicorn imports fine WITHOUT a WebSocket backend (a bare `uvicorn` vs
+# `uvicorn[standard]`), but the live vehicle stream rides a WebSocket
+# (/api/ws/<scenario>). Check for a WS impl explicitly so a missing one fails
+# loudly HERE instead of the stack coming "up" with a dead stream — the network
+# renders over HTTP, but no traffic ever reaches the browser.
+import importlib.util as _u
+if not any(_u.find_spec(m) for m in ("websockets", "wsproto")):
+    miss.append("websockets (install: uvicorn[standard] or websockets)")
 print("\n".join(miss))
 PY
 )
