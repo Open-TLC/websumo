@@ -69,7 +69,8 @@ faster, so city-scale subareas like `area3` stay real-time. But meso state is
 **edge/segment-level flow–density**, not vehicle positions: `getPosition()` returns
 approximate 100 m-segment placements, so the current per-vehicle glyphs are
 cosmetic when meso is on. Full research (what meso exposes, how Aimsun/UXsim/etc.
-visualise it, deck.gl fit, pitfalls): `docs/MESO_VIZ_RESEARCH.md`.
+visualise it, deck.gl fit, pitfalls): `docs/MESO_VIZ_RESEARCH.md`. Concrete design
+for the first piece (protocol + backend + layer): `docs/EDGE_HEAT_LAYER_PLAN.md`.
 
 Next steps, cheapest-first (from that doc §5):
 
