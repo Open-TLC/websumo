@@ -64,8 +64,8 @@ and attaches to the simengine on Start (it never spawns or kills one of its own)
     "loop2": true
   },
   "edges": [
-    ["approach_northwest_car", 3.0, 52.9, 0.066],
-    ["approach_southwest_car", 0.0, 181.3, 0.454]
+    ["approach_northwest_car", 3.0, 52.9, 0.066, 2],
+    ["approach_southwest_car", 0.0, 181.3, 0.454, 5]
   ],
   "events": [
     {"type": "collision", "text": "veh0 vs veh1", "lane": "edge_0_0"},
@@ -87,7 +87,7 @@ and attaches to the simengine on Start (it never spawns or kills one of its own)
 | `persons` | array | yes | Each pedestrian/cyclist: `[id, lon, lat, angle_deg, speed_m_s]`. Empty array if no persons. |
 | `tls` | object | yes | Junction TLS ID → SUMO phase state string (e.g., "GGrrGGrr"). Empty object if no TLS. |
 | `detectors` | object | yes | Detector ID → boolean (active/inactive this step). Empty object if no detectors. |
-| `edges` | array | no | Edge-aggregate "heat". One entry per **occupied** edge: `[edgeId, meanSpeed_m_s, density_veh_km, occupancy_0_1]`. Edges with no vehicles this step are omitted (render as free-flow). `meanSpeed` is a segment average under the mesoscopic engine. |
+| `edges` | array | no | Edge-aggregate "heat". One entry per **occupied** edge: `[edgeId, meanSpeed_m_s, density_veh_km, occupancy_0_1, halting_count]`. Edges with no vehicles this step are omitted (render as free-flow). `meanSpeed` is a segment average and `halting_count` is derived from it under the mesoscopic engine. |
 | `events` | array | no | Exceptional events (collisions, teleports, emergency stops). Each: `{type, text, lane?}`. |
 | `maxRate` | float | no | Actual sim speed as multiple of real-time (e.g., 1.0 = 1× speed). Omit if not rate-limited. |
 | `_empty` | bool | no | True if no more vehicles expected and sim should end (when reached configured end time or flows end). |

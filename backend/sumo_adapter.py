@@ -278,14 +278,15 @@ _EDGE_LEN_M: dict = {}   # edgeID -> length (m), cached once from the sumolib ne
 
 def _edge_heat(net: object) -> list:
     """Edge-aggregate live state for the heat layer — one row per OCCUPIED edge:
-    [edgeId, meanSpeed_m_s, density_veh_km, occupancy_0_1].
+    [edgeId, meanSpeed_m_s, density_veh_km, occupancy_0_1, halting_count].
 
     The cheap, meso-honest companion to the per-vehicle snapshot: cost ~O(occupied
     edges), not O(vehicles), so it scales where the vehicle snapshot doesn't. Only
     edges with vehicles this frame are emitted (client renders missing = free-flow).
     Internal (':'-prefixed) edges are skipped. Verified micro-vs-meso: occupancy and
-    density come through meso identical to micro; meanSpeed is a meso segment average
-    (see docs/EDGE_HEAT_LAYER_PLAN.md)."""
+    density come through meso identical to micro; meanSpeed is a meso segment average;
+    the live halting count works in meso too (it feeds the approach queue indicators)
+    — see docs/EDGE_HEAT_LAYER_PLAN.md."""
     if not _EDGE_LEN_M:
         for e in net.getEdges():
             _EDGE_LEN_M[e.getID()] = e.getLength()
@@ -302,6 +303,7 @@ def _edge_heat(net: object) -> list:
             round(traci.edge.getLastStepMeanSpeed(eid), 2),
             round(n / (L / 1000.0), 1) if L else -1,
             round(traci.edge.getLastStepOccupancy(eid), 3),
+            traci.edge.getLastStepHaltingNumber(eid),
         ])
     return edges
 

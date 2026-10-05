@@ -83,8 +83,9 @@ Next steps, cheapest-first (from that doc §5):
 - **Edge choropleth** (highest value): deck.gl `PathLayer`, one path per edge,
   `getColor` by speed/density, `getWidth` by flow; put scalars behind
   `updateTriggers`, keep geometry immutable.
-- **Per-approach queue indicators** at controlled junctions (Aimsun "virtual queue"
-  pattern) — what the OC demo actually wants to show.
+- ✅ **Per-approach queue indicators** at controlled junctions (Aimsun "virtual
+  queue" pattern) — halting count per approach edge, labelled at the stopline.
+  Done (slice 2); visual eyeball pending.
 - **Demote glyphs** to an optional overlay, badged "approximate", off by default in
   meso mode.
 - **Validate vs micro**: compare edge density/occupancy + junction queues; expect

@@ -294,6 +294,7 @@ def build_network_geojson(net_xml_path: str) -> dict:
                         'type': 'stopline',
                         'tls_id': tls_id,
                         'sig_idx': int(sig_idx),
+                        'edge': from_lane.getEdge().getID(),   # for approach-queue join
                     },
                     'geometry': {'type': 'LineString', 'coordinates': coords},
                 })

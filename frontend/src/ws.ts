@@ -4,9 +4,9 @@ export type Vehicle = [string, number, number, number, number, number, string]
 export type Person = [string, number, number, number, number]
 // [id, lon, lat, angleDeg, speed]
 
-export type EdgeStat = [string, number, number, number]
-// [edgeId, meanSpeed_m_s, density_veh_km, occupancy_0_1] — one per OCCUPIED edge
-// (edges with no vehicles this frame are omitted → render as free-flow)
+export type EdgeStat = [string, number, number, number, number]
+// [edgeId, meanSpeed_m_s, density_veh_km, occupancy_0_1, halting_count] — one per
+// OCCUPIED edge (edges with no vehicles this frame are omitted → render free-flow)
 
 export type LogEvent = { type: string; text: string; lane?: string }
 

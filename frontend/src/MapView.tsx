@@ -31,7 +31,12 @@ interface StopLine {
   to: [number, number]
   tlsId: string
   sigIdx: number
+  edge?: string
 }
+
+// One per controlled approach edge: where to anchor its queue-count label (the
+// mean of that edge's stopline midpoints) — dedupes the per-lane stoplines.
+interface QueueAnchor { pos: [number, number]; edge: string }
 
 interface Detector {
   from: [number, number]
@@ -180,6 +185,8 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
     { vehicles: [], tls: {}, detectors: {}, persons: [], edges: [] })
   // vehicle-lane geometries (one per lane), coloured live by their edge's metric
   const roadsRef = useRef<RoadPath[]>([])
+  // one anchor per controlled approach edge, for the queue-count labels
+  const queueAnchorsRef = useRef<QueueAnchor[]>([])
   const onPickRef = useRef(onPick)
   const onPickAwayRef = useRef(onPickAway)
   const onGenerateRef = useRef(onGenerate)
@@ -203,7 +210,12 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
     // is a cheap identity that changes only when the metric set changes, so deck
     // recomputes the colour buffer (not the static geometry) via updateTriggers.
     const edgeOcc = new Map<string, number>()
-    for (const e of edges) edgeOcc.set(e[0], e[3])
+    const edgeHalt = new Map<string, number>()
+    for (const e of edges) { edgeOcc.set(e[0], e[3]); edgeHalt.set(e[0], e[4]) }
+    // queue labels: controlled approaches with ≥1 halting vehicle this frame
+    const queues = queueAnchorsRef.current
+      .map((a) => ({ pos: a.pos, n: edgeHalt.get(a.edge) ?? 0 }))
+      .filter((q) => q.n >= 1)
 
     // V2X: draw the selected floating car's egocentric graph as links to its
     // leader (following), perceived neighbours (sees), and next signal
@@ -423,6 +435,25 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
           getWidth: (d) => d.width,
           widthUnits: 'pixels',
         }),
+        // Approach queue indicators: halting-vehicle count at each controlled
+        // approach (edge-level — the meso-honest queue measure). Drawn last so the
+        // labels sit on top; keyed on `edges` identity so counts refresh per frame.
+        new TextLayer<{ pos: [number, number]; n: number }>({
+          id: 'approach-queues',
+          data: queues,
+          getPosition: (d) => d.pos,
+          getText: (d) => String(d.n),
+          getSize: 13,
+          sizeUnits: 'pixels',
+          getColor: [255, 255, 255, 255],
+          background: true,
+          getBackgroundColor: (d) =>
+            d.n >= 8 ? [200, 40, 40, 235] : d.n >= 4 ? [220, 120, 30, 230] : [210, 170, 40, 220],
+          backgroundPadding: [4, 2],
+          fontWeight: 700,
+          getPixelOffset: [0, -12],
+          updateTriggers: { getText: edges, getBackgroundColor: edges },
+        }),
       ],
     })
   }
@@ -583,8 +614,26 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
             to: coords[1] as [number, number],
             tlsId: f.properties!.tls_id as string,
             sigIdx: f.properties!.sig_idx as number,
+            edge: f.properties!.edge as string | undefined,
           }
         })
+
+      // One queue-label anchor per controlled approach edge: the mean of that
+      // edge's stopline midpoints (several lanes of one edge collapse to one label,
+      // since meso queue is edge-level). Positions are static → computed once here.
+      {
+        const acc = new Map<string, { sx: number; sy: number; n: number }>()
+        for (const s of stopLinesRef.current) {
+          if (!s.edge) continue
+          const mx = (s.from[0] + s.to[0]) / 2, my = (s.from[1] + s.to[1]) / 2
+          const a = acc.get(s.edge) ?? { sx: 0, sy: 0, n: 0 }
+          a.sx += mx; a.sy += my; a.n += 1
+          acc.set(s.edge, a)
+        }
+        queueAnchorsRef.current = [...acc].map(([edge, a]) => ({
+          edge, pos: [a.sx / a.n, a.sy / a.n] as [number, number],
+        }))
+      }
 
       // Pedestrian crossings: the crossing AREA (neutral zebra marking) and,
       // separately, the perpendicular signal bar (coloured live by the ped

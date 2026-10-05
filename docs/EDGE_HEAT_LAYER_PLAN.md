@@ -35,13 +35,13 @@ ignored, missing field = feature absent):
   "t": 123.4,
   "vehicles": [ ... ],
   "edges": [
-    ["24577881#0", 11.8, 42.0, 0.31],
-    ["-23904458",   2.1, 95.0, 0.88]
+    ["24577881#0", 11.8, 42.0, 0.31, 0],
+    ["-23904458",   2.1, 95.0, 0.88, 7]
   ]
 }
 ```
 
-`edges` — array, optional. Each entry: **`[edgeId, meanSpeed_m_s, density_veh_km, occupancy_0_1]`**.
+`edges` — array, optional. Each entry: **`[edgeId, meanSpeed_m_s, density_veh_km, occupancy_0_1, halting_count]`**.
 
 - **Only non-empty edges are published** (an edge with no vehicles this frame is
   omitted; the client renders missing edges as free-flow / uncoloured). This is the
@@ -164,9 +164,11 @@ positions) — decide during slice 1.
    protocol, `edge` prop in geometry, `PathLayer` coloured by the chosen metric,
    legend + toggle. Validate payload size and frame cost on `area3` meso **and**
    micro at ~6k vehicles.
-2. **Per-approach queue indicators:** at controlled junctions, a bar/label per
-   incoming edge sized by occupancy/density (Aimsun "virtual queue" pattern) — the
-   OC-demo view.
+2. **✅ Per-approach queue indicators (done):** `halting_count` added to the `edges`
+   tuple (live meso-compatible queue measure); stoplines tagged with their `edge`;
+   a `TextLayer` ('approach-queues') labels each controlled approach with its halting
+   count (deduped to one label per edge, coloured amber→red by severity, shown when
+   ≥1). Verified streaming; visual eyeball still pending (no display in CI).
 3. **Mode-aware glyphs:** demote/badge vehicle dots in meso; wire the default-on/off
    logic.
 4. *(Later, not scheduled)* time–space / MFD / cumulative-curve analysis panels.
