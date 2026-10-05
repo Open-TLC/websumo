@@ -2,11 +2,11 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { MapboxOverlay } from '@deck.gl/mapbox'
-import { PolygonLayer, LineLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers'
-import type { Vehicle, Person, Ldm, LdmObject, OcJoin } from './ws'
+import { PolygonLayer, LineLayer, PathLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers'
+import type { Vehicle, Person, EdgeStat, Ldm, LdmObject, OcJoin } from './ws'
 
 export interface MapViewHandle {
-  updateStep: (vehicles: Vehicle[], tls: Record<string, string>, detectors: Record<string, boolean>, persons: Person[], t: number) => void
+  updateStep: (vehicles: Vehicle[], tls: Record<string, string>, detectors: Record<string, boolean>, persons: Person[], t: number, edges?: EdgeStat[]) => void
   setBasemap: (on: boolean) => void
   fitNetwork: (gj: GeoJSON.FeatureCollection) => void
   setSelected: (kind: 'vehicle' | 'tls' | null, id: string | null) => void
@@ -143,6 +143,21 @@ const BLANK_STYLE: maplibregl.StyleSpecification = {
   layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#12121f' } }],
 }
 
+// A vehicle-lane geometry for the edge-heat layer, tagged with its parent edge id
+// so each frame's per-edge metric can colour it.
+interface RoadPath { path: [number, number][]; edge: string }
+
+// Occupancy (0..1) → heat colour. Occupancy rarely approaches 1 in practice (even a
+// busy edge sits well below bumper-to-bumper), so the ramp saturates by ~0.5: free
+// (transparent green) → amber → red (jammed). Edges with no datum this frame aren't
+// drawn at all (free-flow), so this only colours occupied edges.
+function edgeHeatColor(occ: number): [number, number, number, number] {
+  const x = Math.max(0, Math.min(1, occ / 0.5))
+  const r = Math.round(60 + 195 * x)
+  const g = Math.round(200 - 160 * x)
+  return [r, g, 60, 200]
+}
+
 export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPick, onPickAway, onGenerate }, ref) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -161,8 +176,10 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
   // OC display mode: the join map + live substate per "<subject_key>.<sigIdx>"
   const ocJoinRef = useRef<OcJoin | null>(null)
   const ocGroupsRef = useRef<Record<string, string>>({})
-  const lastStepRef = useRef<{ vehicles: Vehicle[]; tls: Record<string, string>; detectors: Record<string, boolean>; persons: Person[] }>(
-    { vehicles: [], tls: {}, detectors: {}, persons: [] })
+  const lastStepRef = useRef<{ vehicles: Vehicle[]; tls: Record<string, string>; detectors: Record<string, boolean>; persons: Person[]; edges: EdgeStat[] }>(
+    { vehicles: [], tls: {}, detectors: {}, persons: [], edges: [] })
+  // vehicle-lane geometries (one per lane), coloured live by their edge's metric
+  const roadsRef = useRef<RoadPath[]>([])
   const onPickRef = useRef(onPick)
   const onPickAwayRef = useRef(onPickAway)
   const onGenerateRef = useRef(onGenerate)
@@ -175,10 +192,18 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
     tls: Record<string, string>,
     detectors: Record<string, boolean>,
     persons: Person[] = lastStepRef.current.persons,
+    edges: EdgeStat[] = lastStepRef.current.edges,
   ) => {
-    lastStepRef.current = { vehicles, tls, detectors, persons }
+    lastStepRef.current = { vehicles, tls, detectors, persons, edges }
     const sel = selectedRef.current
     const selVehicle = sel?.kind === 'vehicle' ? sel.id : null
+
+    // Edge-heat: map edgeId → occupancy (col 3) for this frame. Only occupied edges
+    // are present; the layer leaves the rest uncoloured (free-flow). `edgeHeatVer`
+    // is a cheap identity that changes only when the metric set changes, so deck
+    // recomputes the colour buffer (not the static geometry) via updateTriggers.
+    const edgeOcc = new Map<string, number>()
+    for (const e of edges) edgeOcc.set(e[0], e[3])
 
     // V2X: draw the selected floating car's egocentric graph as links to its
     // leader (following), perceived neighbours (sees), and next signal
@@ -240,6 +265,26 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
 
     deckRef.current?.setProps({
       layers: [
+        // Edge-heat: colour each vehicle lane by its edge's live occupancy. Drawn
+        // first so it sits UNDER the markers/vehicles; geometry is static (cached),
+        // only getColor recomputes per frame (keyed on the fresh `edges` identity).
+        // The honest meso view and the cheap-at-scale companion to the vehicle
+        // snapshot — see docs/EDGE_HEAT_LAYER_PLAN.md.
+        new PathLayer<RoadPath>({
+          id: 'edge-heat',
+          data: roadsRef.current,
+          getPath: (d) => d.path,
+          getColor: (d) => {
+            const occ = edgeOcc.get(d.edge)
+            return occ === undefined ? [0, 0, 0, 0] : edgeHeatColor(occ)
+          },
+          getWidth: 3,
+          widthUnits: 'meters',
+          widthMinPixels: 2,
+          capRounded: true,
+          jointRounded: true,
+          updateTriggers: { getColor: edges },
+        }),
         new LineLayer<Detector>({
           id: 'detectors',
           data: detectorsRef.current,
@@ -411,8 +456,8 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
         map.fitBounds([[minLon, minLat], [maxLon, maxLat]], { padding: 60, maxZoom: 18 })
       }
     },
-    updateStep(vehicles: Vehicle[], tls: Record<string, string>, detectors: Record<string, boolean>, persons: Person[]) {
-      renderDeck(vehicles, tls, detectors, persons)
+    updateStep(vehicles: Vehicle[], tls: Record<string, string>, detectors: Record<string, boolean>, persons: Person[], _t: number, edges?: EdgeStat[]) {
+      renderDeck(vehicles, tls, detectors, persons, edges ?? lastStepRef.current.edges)
     },
     setFcd(graph) {
       // redraw against the last known positions so the overlay appears at once
@@ -576,6 +621,15 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
             id: f.properties!.id as string,
           }
         })
+
+      // Vehicle-lane geometries for the edge-heat layer, each tagged with its
+      // parent edge id so a per-edge metric can colour all its lanes.
+      roadsRef.current = networkGeoJSON.features
+        .filter((f) => f.properties?.type === 'lane' && f.properties?.edge)
+        .map((f) => ({
+          path: (f.geometry as GeoJSON.LineString).coordinates as [number, number][],
+          edge: f.properties!.edge as string,
+        }))
 
       // Parse generator markers (click to inject a vehicle at that entry)
       generatorsRef.current = networkGeoJSON.features

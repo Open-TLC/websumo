@@ -273,6 +273,39 @@ def _inspect_block(sel: dict) -> dict:
     return {'kind': sel['kind'], 'id': sel['id'], 'gone': True}
 
 
+_EDGE_LEN_M: dict = {}   # edgeID -> length (m), cached once from the sumolib net
+
+
+def _edge_heat(net: object) -> list:
+    """Edge-aggregate live state for the heat layer — one row per OCCUPIED edge:
+    [edgeId, meanSpeed_m_s, density_veh_km, occupancy_0_1].
+
+    The cheap, meso-honest companion to the per-vehicle snapshot: cost ~O(occupied
+    edges), not O(vehicles), so it scales where the vehicle snapshot doesn't. Only
+    edges with vehicles this frame are emitted (client renders missing = free-flow).
+    Internal (':'-prefixed) edges are skipped. Verified micro-vs-meso: occupancy and
+    density come through meso identical to micro; meanSpeed is a meso segment average
+    (see docs/EDGE_HEAT_LAYER_PLAN.md)."""
+    if not _EDGE_LEN_M:
+        for e in net.getEdges():
+            _EDGE_LEN_M[e.getID()] = e.getLength()
+    edges = []
+    for eid in traci.edge.getIDList():
+        if eid.startswith(':'):
+            continue
+        n = traci.edge.getLastStepVehicleNumber(eid)
+        if n == 0:
+            continue
+        L = _EDGE_LEN_M.get(eid)
+        edges.append([
+            eid,
+            round(traci.edge.getLastStepMeanSpeed(eid), 2),
+            round(n / (L / 1000.0), 1) if L else -1,
+            round(traci.edge.getLastStepOccupancy(eid), 3),
+        ])
+    return edges
+
+
 def _do_step(net: object, sel: dict | None = None, full: bool = True,
              scenario: str | None = None, fcd_sel: str | None = None,
              want_fcd: bool = False) -> dict:
@@ -334,6 +367,7 @@ def _do_step(net: object, sel: dict | None = None, full: bool = True,
         'events': events,
         '_empty': empty,
         'det_on': det_on,   # the run loop turns the frame's union into `detectors`
+        'edges': _edge_heat(net),   # edge-aggregate heat (occupied edges only)
     }
     if sel:
         out['inspect'] = _inspect_block(sel)

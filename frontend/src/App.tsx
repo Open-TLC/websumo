@@ -126,10 +126,10 @@ export default function App() {
       }
 
       const sock = sockRef.current
-      sock.onStep = (vehicles, tls, detectors, persons, t, mr) => {
+      sock.onStep = (vehicles, tls, detectors, persons, t, mr, edges) => {
         setSimTime(t)
         if (mr != null) setMaxRate(mr)
-        mapRef.current?.updateStep(vehicles, tls, detectors, persons, t)
+        mapRef.current?.updateStep(vehicles, tls, detectors, persons, t, edges)
         if (resendSelectRef.current) {
           resendSelectRef.current = false
           const sel = selectedRef.current

@@ -4,6 +4,10 @@ export type Vehicle = [string, number, number, number, number, number, string]
 export type Person = [string, number, number, number, number]
 // [id, lon, lat, angleDeg, speed]
 
+export type EdgeStat = [string, number, number, number]
+// [edgeId, meanSpeed_m_s, density_veh_km, occupancy_0_1] — one per OCCUPIED edge
+// (edges with no vehicles this frame are omitted → render as free-flow)
+
 export type LogEvent = { type: string; text: string; lane?: string }
 
 export type InspectBlock = Record<string, unknown> & { kind: string; id: string; gone?: boolean }
@@ -54,7 +58,7 @@ export type OcController = {
 
 export class SimSocket {
   private ws: WebSocket | null = null
-  onStep: ((vehicles: Vehicle[], tls: Record<string, string>, detectors: Record<string, boolean>, persons: Person[], t: number, maxRate?: number) => void) | null = null
+  onStep: ((vehicles: Vehicle[], tls: Record<string, string>, detectors: Record<string, boolean>, persons: Person[], t: number, maxRate?: number, edges?: EdgeStat[]) => void) | null = null
   onEnd: (() => void) | null = null
   onLog: ((t: number, events: LogEvent[]) => void) | null = null
   onInspect: ((block: InspectBlock) => void) | null = null
@@ -93,7 +97,7 @@ export class SimSocket {
         this.onOcController?.({ controller: d.controller, phase: d.phase ?? null,
                                 next_phase: d.next_phase ?? null, step: d.step ?? null })
       } else {
-        this.onStep?.(d.vehicles ?? [], d.tls ?? {}, d.detectors ?? {}, d.persons ?? [], d.t ?? 0, d.maxRate)
+        this.onStep?.(d.vehicles ?? [], d.tls ?? {}, d.detectors ?? {}, d.persons ?? [], d.t ?? 0, d.maxRate, d.edges ?? [])
         if (d.inspect) this.onInspect?.(d.inspect)
       }
     }

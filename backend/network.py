@@ -240,7 +240,9 @@ def build_network_geojson(net_xml_path: str) -> dict:
             else:
                 ptype = 'lane'
             coords = [list(net.convertXY2LonLat(x, y)) for x, y in shape]
-            props = {'id': lane.getID(), 'type': ptype}
+            # `edge` lets the client colour all lanes of an edge by that edge's live
+            # metric (the edge-heat layer); lane id alone can't be mapped back safely.
+            props = {'id': lane.getID(), 'type': ptype, 'edge': edge.getID()}
             features.append({
                 'type': 'Feature',
                 'properties': props,
