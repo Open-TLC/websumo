@@ -29,6 +29,7 @@ export default function App() {
   const [fcdGraph, setFcdGraph] = useState<FcdGraph | null>(null)  // V2X: selected car's ego graph
   const [ldm, setLdm] = useState<Ldm | null>(null)                 // V2X: fused shared LDM
   const [ldmOn, setLdmOn] = useState(false)                        // V2X: LDM overlay toggle
+  const [queueMode, setQueueMode] = useState<'link' | 'group'>('link')  // approach-queue label granularity
   const [genVtypes, setGenVtypes] = useState<string[]>([])   // vTypes offered by the loaded network
   const [genVtype, setGenVtype] = useState('')               // currently selected injection vType
   const [ocJoin, setOcJoin] = useState<OcJoin | null>(null)  // OC display mode: group↔link join
@@ -265,6 +266,14 @@ export default function App() {
     })
   }, [])
 
+  const handleQueueModeToggle = useCallback(() => {
+    setQueueMode((m) => {
+      const next = m === 'link' ? 'group' : 'link'
+      mapRef.current?.setQueueMode(next)
+      return next
+    })
+  }, [])
+
   const handleDeselect = useCallback(() => {
     setSelected(null)
     setInspectLive(null)
@@ -332,6 +341,8 @@ export default function App() {
         duration={duration}
         basemap={basemap}
         ldmOn={ldmOn}
+        queueMode={queueMode}
+        queueToggleOn={!!ocJoin?.enabled}
         logUnread={logUnread}
         genVtypes={genVtypes}
         genVtype={genVtype}
@@ -349,6 +360,7 @@ export default function App() {
         onTrafficScaleChange={handleTrafficScaleChange}
         onBasemapToggle={handleBasemapToggle}
         onLdmToggle={handleLdmToggle}
+        onQueueModeToggle={handleQueueModeToggle}
       />
       <LogPanel
         open={logOpen}

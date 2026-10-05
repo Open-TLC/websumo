@@ -168,7 +168,13 @@ positions) — decide during slice 1.
    tuple (live meso-compatible queue measure); stoplines tagged with their `edge`;
    a `TextLayer` ('approach-queues') labels each controlled approach with its halting
    count (deduped to one label per edge, coloured amber→red by severity, shown when
-   ≥1). Verified streaming; visual eyeball still pending (no display in CI).
+   ≥1). **Per-link / per-group toggle** (`Q:LINK`/`Q:GRP`, shown only in OC mode):
+   group mode aggregates halting over each OC signal group's distinct approach edges
+   (via the `link_group` sigIdx→group join) and labels `"<group>:<n>"` at the mean of
+   that group's stopline midpoints. Group halting is approximate — edge-level data
+   mapped onto groups (a shared/ multi-edge group can't be split finer under meso).
+   Per-link verified streaming/rendering (micro, 269). **Per-group needs OC mode
+   (oc270) to have groups — visual eyeball still pending there.**
 3. **Mode-aware glyphs:** demote/badge vehicle dots in meso; wire the default-on/off
    logic.
 4. *(Later, not scheduled)* time–space / MFD / cumulative-curve analysis panels.

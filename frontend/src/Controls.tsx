@@ -9,6 +9,8 @@ interface Props {
   duration: number
   basemap: boolean
   ldmOn: boolean
+  queueMode: 'link' | 'group'
+  queueToggleOn: boolean   // show the per-link/per-group switch (OC mode has groups)
   logUnread: number
   genVtypes: string[]
   genVtype: string
@@ -26,6 +28,7 @@ interface Props {
   onTrafficScaleChange: (v: number) => void
   onBasemapToggle: () => void
   onLdmToggle: () => void
+  onQueueModeToggle: () => void
 }
 
 const btn = (label: string, onClick: () => void, disabled = false, accent = false) => (
@@ -64,9 +67,9 @@ const DURATIONS = [
 
 export function Controls({
   scenarios, scenario, simState, simTime, speed, maxRate, trafficScale, duration, basemap, ldmOn,
-  logUnread, genVtypes, genVtype, onGenVtypeChange, onToggleLog,
+  queueMode, queueToggleOn, logUnread, genVtypes, genVtype, onGenVtypeChange, onToggleLog,
   onScenarioChange, onDurationChange, onLoad, onStart, onPause, onResume, onStop, onReset,
-  onSpeedChange, onTrafficScaleChange, onBasemapToggle, onLdmToggle,
+  onSpeedChange, onTrafficScaleChange, onBasemapToggle, onLdmToggle, onQueueModeToggle,
 }: Props) {
   const idle = simState === 'idle'
   const running = simState === 'running'
@@ -125,6 +128,20 @@ export function Controls({
           >
             LDM
           </button>
+          {queueToggleOn && (
+            <button
+              onClick={onQueueModeToggle}
+              title="Approach-queue labels: per link (approach edge) or per OC signal group"
+              style={{
+                padding: '3px 10px', border: `1px solid ${queueMode === 'group' ? '#c080e0' : '#3a3a6a'}`,
+                borderRadius: 4, cursor: 'pointer', fontSize: 11, fontWeight: 600,
+                background: queueMode === 'group' ? '#2a1a3a' : '#1a1a30',
+                color: queueMode === 'group' ? '#d0a0f0' : '#667',
+              }}
+            >
+              {queueMode === 'group' ? 'Q:GRP' : 'Q:LINK'}
+            </button>
+          )}
           <button
             onClick={onBasemapToggle}
             title="Toggle OSM basemap"

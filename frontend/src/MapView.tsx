@@ -17,6 +17,8 @@ export interface MapViewHandle {
   // per-signal-index substate stream (keyed "<subject_key>.<sigIdx>").
   setOcJoin: (join: OcJoin | null) => void
   setOcGroups: (groups: Record<string, string>) => void
+  // approach-queue labels: per approach link, or aggregated per OC signal group
+  setQueueMode: (mode: 'link' | 'group') => void
 }
 
 interface Props {
@@ -187,12 +189,40 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
   const roadsRef = useRef<RoadPath[]>([])
   // one anchor per controlled approach edge, for the queue-count labels
   const queueAnchorsRef = useRef<QueueAnchor[]>([])
+  // per-OC-group queue anchors (built from the group↔sigIdx join); each group's
+  // halting is summed over its distinct approach edges. Only populated in OC mode.
+  const groupAnchorsRef = useRef<{ group: string; pos: [number, number]; edges: string[] }[]>([])
+  const queueModeRef = useRef<'link' | 'group'>('link')
   const onPickRef = useRef(onPick)
   const onPickAwayRef = useRef(onPickAway)
   const onGenerateRef = useRef(onGenerate)
   onPickRef.current = onPick
   onPickAwayRef.current = onPickAway
   onGenerateRef.current = onGenerate
+
+  // Build one queue anchor per OC signal group from the group↔sigIdx join: a
+  // group's label sits at the mean of its stoplines' midpoints, and its queue is
+  // summed over the DISTINCT approach edges those stoplines belong to (edge-level
+  // halting is all meso gives — a group spanning/ sharing edges is approximate).
+  // Needs OC mode (link_group); empty otherwise → the layer falls back to per-link.
+  const rebuildGroupAnchors = () => {
+    const lg = ocJoinRef.current?.enabled ? ocJoinRef.current?.link_group : undefined
+    if (!lg) { groupAnchorsRef.current = []; return }
+    const acc = new Map<string, { sx: number; sy: number; n: number; edges: Set<string> }>()
+    for (const s of stopLinesRef.current) {
+      const g = lg[String(s.sigIdx)]
+      if (!g) continue
+      const a = acc.get(g) ?? { sx: 0, sy: 0, n: 0, edges: new Set<string>() }
+      a.sx += (s.from[0] + s.to[0]) / 2
+      a.sy += (s.from[1] + s.to[1]) / 2
+      a.n += 1
+      if (s.edge) a.edges.add(s.edge)
+      acc.set(g, a)
+    }
+    groupAnchorsRef.current = [...acc].map(([group, a]) => ({
+      group, pos: [a.sx / a.n, a.sy / a.n] as [number, number], edges: [...a.edges],
+    }))
+  }
 
   const renderDeck = (
     vehicles: Vehicle[],
@@ -212,10 +242,20 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
     const edgeOcc = new Map<string, number>()
     const edgeHalt = new Map<string, number>()
     for (const e of edges) { edgeOcc.set(e[0], e[3]); edgeHalt.set(e[0], e[4]) }
-    // queue labels: controlled approaches with ≥1 halting vehicle this frame
-    const queues = queueAnchorsRef.current
-      .map((a) => ({ pos: a.pos, n: edgeHalt.get(a.edge) ?? 0 }))
-      .filter((q) => q.n >= 1)
+    // queue labels: per OC group (sum halting over the group's edges) when in group
+    // mode and groups are known, else per approach link. Shown when ≥1 halting.
+    const useGroups = queueModeRef.current === 'group' && groupAnchorsRef.current.length > 0
+    const queues: { pos: [number, number]; n: number; label: string }[] = useGroups
+      ? groupAnchorsRef.current
+          .map((a) => ({
+            pos: a.pos,
+            n: a.edges.reduce((s, e) => s + (edgeHalt.get(e) ?? 0), 0),
+            label: a.group,   // group mode: "<group>:<n>"
+          }))
+          .filter((q) => q.n >= 1)
+      : queueAnchorsRef.current
+          .map((a) => ({ pos: a.pos, n: edgeHalt.get(a.edge) ?? 0, label: '' }))
+          .filter((q) => q.n >= 1)
 
     // V2X: draw the selected floating car's egocentric graph as links to its
     // leader (following), perceived neighbours (sees), and next signal
@@ -438,11 +478,11 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
         // Approach queue indicators: halting-vehicle count at each controlled
         // approach (edge-level — the meso-honest queue measure). Drawn last so the
         // labels sit on top; keyed on `edges` identity so counts refresh per frame.
-        new TextLayer<{ pos: [number, number]; n: number }>({
+        new TextLayer<{ pos: [number, number]; n: number; label: string }>({
           id: 'approach-queues',
           data: queues,
           getPosition: (d) => d.pos,
-          getText: (d) => String(d.n),
+          getText: (d) => d.label ? `${d.label}:${d.n}` : String(d.n),
           getSize: 13,
           sizeUnits: 'pixels',
           getColor: [255, 255, 255, 255],
@@ -452,7 +492,7 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
           backgroundPadding: [4, 2],
           fontWeight: 700,
           getPixelOffset: [0, -12],
-          updateTriggers: { getText: edges, getBackgroundColor: edges },
+          updateTriggers: { getText: [edges, queueModeRef.current], getBackgroundColor: edges },
         }),
       ],
     })
@@ -509,8 +549,14 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
     },
     setOcJoin(join) {
       ocJoinRef.current = join
+      rebuildGroupAnchors()                  // group anchors depend on the join
       const { vehicles, tls, detectors } = lastStepRef.current
       renderDeck(vehicles, tls, detectors)   // redraw labels/colours at once
+    },
+    setQueueMode(mode) {
+      queueModeRef.current = mode
+      const { vehicles, tls, detectors } = lastStepRef.current
+      renderDeck(vehicles, tls, detectors)   // reflect the toggle immediately
     },
     setOcGroups(groups) {
       // replace (not mutate) so deck.gl's updateTriggers sees a new identity
@@ -634,6 +680,7 @@ export const MapView = forwardRef<MapViewHandle, Props>(({ networkGeoJSON, onPic
           edge, pos: [a.sx / a.n, a.sy / a.n] as [number, number],
         }))
       }
+      rebuildGroupAnchors()   // (re)build per-group anchors if the OC join is present
 
       // Pedestrian crossings: the crossing AREA (neutral zebra marking) and,
       // separately, the perpendicular signal bar (coloured live by the ped
