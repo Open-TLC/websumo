@@ -51,12 +51,13 @@ fi
 
 # ---- 0. deps (fail loudly; jsmin is OC's config reader) ----
 missing=$(python3 - <<'PY'
+import importlib.util
 mods = {"nats":"nats-py","libsumo":"libsumo","sumolib":"SUMO distribution",
         "fastapi":"fastapi","uvicorn":"uvicorn[standard]","jsmin":"jsmin",
         # the OC control engine (clockwork) needs these to actuate the signals:
         "transitions":"transitions","pandas":"pandas"}
 print("\n".join(f"{m} ({p})" for m,p in mods.items()
-      if __import__("importlib").util.find_spec(m) is None))
+      if importlib.util.find_spec(m) is None))
 PY
 )
 [[ -n "$missing" ]] && { echo "ERROR: missing deps:" >&2; echo "$missing" | sed 's/^/  - /' >&2; exit 1; }
